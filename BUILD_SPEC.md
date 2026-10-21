@@ -406,3 +406,27 @@ Average SI-SDR gain (dB) vs the other top candidates:
 | core % / delay | 17% / 10 ms | 5% / 10.7 ms | 19% / 14.7 ms | 14% / **50 ms** | 36% / **50 ms** |
 
 DPDFNet gives the best noise removal on rain, barks and distant voices but costs 50 ms delay (over the 30 ms budget) and ran 3-6 frames over the hop on this machine. DP-8 is too heavy for the target i5. A retrained low-look-ahead DPDFNet is the obvious upgrade path (checkpoints and PyTorch code are public).
+
+---
+
+## 18. Engine, presets and "never let it through" (built Oct 2026; code in `crates/qm-engine`, CLI `qm`)
+
+**Owner priorities (in order):** low latency; best background-noise suppression (barking dogs and loud tin-roof rain must never be audible); natural voice for senior-level softphone calls; configurable for old and new PCs.
+
+**Pipeline (platform independent, tested on macOS):**
+`callback block (any size)` → **Reframer** (queues blocks into the model's hop; extra delay = `hop − gcd(block, hop)`, e.g. 0 ms for DFN3-LL/RNNoise at 480, 3.3 ms for FE-M, 10 ms for FE-T/B/S at 480) → **model** → **ResidualGate** → **soft limiter** → output. Total delay is reported by `Engine::total_delay_ms()` and must be shown in the UI.
+
+**ResidualGate** (the "never gets through" stage): a downward expander keyed to the user's own level. It learns the speech level (slow average of active sound; innovation clamped to ±6 dB so loud leaks cannot drag it), opens for anything within `threshold_below_speech_db` of it, and attenuates quieter sound (barks/rain/yelling leaking between words, distant voices) by `(threshold − level) × (ratio − 1)` dB up to `max_atten_db`. Attack 3 ms, hold 120-150 ms (so words are not chopped), release 40-50 ms, 2.5 ms look-ahead so onsets are not clipped. Limits: it cannot remove a loud noise that overlaps your speech and sits above the threshold; that is the model's job.
+
+**Presets** (`Config::from_preset`; each is a model ladder, heaviest first, plus gate settings):
+| preset | ladder | gate (threshold / ratio / max) | use |
+|---|---|---|---|
+| auto, low-latency | dfn3-ll > fe-s > fe-b > fe-t > rnnoise | 20 dB / 4:1 / 45 dB | live calls, lowest delay |
+| balanced | fe-m > dfn3-ll > fe-s > … | 18 / 5:1 / 50 | |
+| max-noise-removal | dp8 > dp2 > fe-m > dfn3-ll > … | 15 / 6:1 / 60 | accepts ~50 ms delay (DPDFNet) |
+| max-voice-separation | fe-m > dfn3-ll > fe-s > … | 12 / 6:1 / 60 | other/distant voices |
+| light | fe-b > fe-t > rnnoise | 20 / 4:1 / 40 | old / battery |
+
+**Tier selection:** `governor::calibrate` times every ladder model on the machine (synthetic speech+noise, single thread); `governor::pick` takes the heaviest model with p99 ≤ 40% and mean ≤ 25% of its hop. At runtime `Governor` steps down after 3 consecutive overruns or ≥ 20/100 calls above 70% of the hop, and steps up after 60 s all below 40% (30 s cooldown after any change). **Not yet built:** crossfaded model hot-swap (the engine currently restarts the new model with fresh state; the audio layer must switch in a pause or crossfade), the Windows audio layer, tray UI, settings persistence (`Config` already derives serde, intended as TOML).
+
+**Evaluate presets:** `qm process --preset P in.wav out.wav`, `.venv/bin/python scripts/eval_presets.py` → `results/PRESETS.md`.
