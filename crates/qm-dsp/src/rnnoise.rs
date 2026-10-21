@@ -26,6 +26,10 @@ impl Denoiser for RnnoiseDenoiser {
         "rnnoise"
     }
 
+    fn hop(&self) -> usize {
+        FRAME
+    }
+
     fn algorithmic_delay(&self) -> usize {
         FRAME
     }

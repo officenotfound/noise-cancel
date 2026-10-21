@@ -1,23 +1,27 @@
 //! Platform-independent DSP for QuietMic. Everything here must be testable on macOS.
 
 mod dfn;
+mod fastenhancer;
 mod rnnoise;
 
 pub use dfn::DfnDenoiser;
+pub use fastenhancer::FastEnhancer;
 pub use rnnoise::RnnoiseDenoiser;
 
 /// Sample rate every denoiser in this crate runs at.
 pub const SAMPLE_RATE: u32 = 48_000;
-/// Samples per processing frame (10 ms at 48 kHz).
+/// Samples in the 10 ms frame used by DeepFilterNet and RNNoise (and by WASAPI capture periods).
 pub const FRAME: usize = 480;
 
-/// A streaming mono 48 kHz denoiser working on fixed 10 ms frames.
+/// A streaming mono 48 kHz denoiser working on fixed-size hops (which differ per model).
 pub trait Denoiser {
     /// Human-readable model name.
     fn name(&self) -> &str;
+    /// Samples consumed and produced per `process_frame` call (also the per-call real-time deadline).
+    fn hop(&self) -> usize;
     /// Algorithmic delay (samples) between input and the output carrying it.
     fn algorithmic_delay(&self) -> usize;
-    /// `input` and `output` are both `FRAME` samples in [-1, 1].
+    /// `input` and `output` are both `hop()` samples in [-1, 1].
     fn process_frame(&mut self, input: &[f32], output: &mut [f32]) -> anyhow::Result<()>;
 }
 
@@ -31,13 +35,14 @@ mod tests {
         p.exists().then_some(p) // models are fetched by scripts/fetch_models.sh, not committed
     }
 
-    /// 1 s of a 440 Hz tone at -20 dBFS, fed frame by frame.
+    /// A 440 Hz tone at -20 dBFS, fed frame by frame.
     fn run(dn: &mut dyn Denoiser, frames: usize) -> Vec<f32> {
+        let hop = dn.hop();
         let mut out = Vec::new();
-        let mut buf = [0.0f32; FRAME];
+        let mut buf = vec![0.0f32; hop];
         for f in 0..frames {
-            let inp: Vec<f32> = (0..FRAME)
-                .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 440.0 * (f * FRAME + i) as f32 / SAMPLE_RATE as f32).sin())
+            let inp: Vec<f32> = (0..hop)
+                .map(|i| 0.1 * (2.0 * std::f32::consts::PI * 440.0 * (f * hop + i) as f32 / SAMPLE_RATE as f32).sin())
                 .collect();
             dn.process_frame(&inp, &mut buf).unwrap();
             out.extend_from_slice(&buf);
@@ -71,5 +76,16 @@ mod tests {
         }
         assert!(buf.iter().all(|s| s.abs() < 1e-3));
         assert!(run(&mut dn, 50).iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn fastenhancer_delays_and_finite_output() {
+        for (m, hop) in [("t", 512), ("b", 512), ("s", 512), ("m", 320), ("l", 200)] {
+            let Some(p) = model(&format!("fastenhancer/fastenhancer_{m}_spec.onnx")) else { continue };
+            let mut dn = FastEnhancer::new(m, &p).unwrap();
+            assert_eq!(dn.hop(), hop, "{m}");
+            assert_eq!(dn.algorithmic_delay(), 1024 - hop, "{m}");
+            assert!(run(&mut dn, 40).iter().all(|s| s.is_finite()), "{m}");
+        }
     }
 }

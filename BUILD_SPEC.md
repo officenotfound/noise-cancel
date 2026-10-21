@@ -337,3 +337,27 @@ Full tables: `results/RESULTS.md`. Reproduce: `scripts/fetch_models.sh`, `script
 - **Unwanted voices:** keep the level/distance gate (§5.3.4) as step one. Real fixes are an enrolled-voice model (Personalized-PercepNet style, 4.7% of an 8th-gen i7 core, but no public code) or fine-tuning a denoiser to ignore far/other voices. voxlock (Apache-2.0) proves the recipe but is far too heavy (27 M params) for the target CPU.
 - **Evaluation data:** add Krisp's CC BY-NC 4.0 VoiceIsolation benchmark (real background-voice recordings) to the test set for personal evaluation; measure *primary-voice damage* as well as leakage.
 - **Real noise recordings from the owner** are the highest-value input for both testing and any fine-tuning.
+
+---
+
+## 15. Hardware-adaptive quality tiers (owner request, Oct 2026)
+
+**Goal:** one app that picks the best model each PC can run safely, so an 8th-gen i5 gets Krisp-level quality and weaker/older PCs still get good suppression. Krisp does the same (Lite / Balanced / Default / HD models; Lite ≈ 1/3 of Default's compute).
+
+**Tier ladder** (fill in from `results/RESULTS.md` once the i5 numbers are in; order = quality high → low):
+| Tier | Model (initial candidates) | Intended for |
+|---|---|---|
+| Max | best of DFN3-LL / FastEnhancer-L / future fine-tuned model | modern or plugged-in PCs |
+| High | DFN3-LL or FastEnhancer-S | 8th-gen i5 target (must reach Krisp-level on the owner's noises) |
+| Balanced | FastEnhancer-B | older dual-core laptops |
+| Lite | FastEnhancer-T | very old / battery saver |
+| Emergency | RNNoise | CPU starvation only |
+
+**Mechanism**
+1. **First-run calibration (~5 s):** run each tier on a short built-in clip through the real audio thread settings (MMCSS, same buffer sizes). Record mean and p99 per-call time vs the model's hop (its real-time deadline). Also read CPU model, core count, AC/battery state, and Windows power mode.
+2. **Pick the heaviest tier with p99 ≤ 40% of its hop** (headroom for thermal throttling and other apps) and mean ≤ 25% of one core. Store the result per device/power state; allow manual override in the tray menu.
+3. **Runtime governor:** track per-call time and underruns continuously. Step **down** after N consecutive calls over 70% of the hop; step **up** only after ~60 s of comfortable headroom (hysteresis). Switch models with a ~20 ms crossfade, never mid-frame, never on the audio thread's critical path (load the next model on a worker thread first).
+4. **Re-calibrate** when the power source/mode changes (plug/unplug, battery saver) or after repeated step-downs.
+5. **UI:** show the active tier, CPU %, and why it was chosen ("Balanced: your CPU can't run High reliably on battery").
+
+**Dependency:** needs all tier models behind the one `Denoiser` trait (done in `qm-dsp` for DFN3, DFN3-LL, FastEnhancer T/B/S/M/L, RNNoise) with per-model `hop()`, and a resampling/re-framing adapter between the 10 ms capture period and model hops (320/480/512 samples). Add the adapter's extra buffering to the displayed latency.

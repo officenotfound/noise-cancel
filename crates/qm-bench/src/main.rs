@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
-use qm_dsp::{Denoiser, DfnDenoiser, RnnoiseDenoiser, FRAME, SAMPLE_RATE};
+use qm_dsp::{Denoiser, DfnDenoiser, FastEnhancer, RnnoiseDenoiser, SAMPLE_RATE};
 
 /// Frames excluded from the timing stats while the runtime warms up.
 const WARMUP_FRAMES: usize = 20;
@@ -19,6 +19,11 @@ enum Model {
     Dfn3,
     Dfn3Ll,
     Rnnoise,
+    FeT,
+    FeB,
+    FeS,
+    FeM,
+    FeL,
 }
 
 #[derive(Parser)]
@@ -77,7 +82,17 @@ fn build(model: Model, args: &Args) -> Result<Box<dyn Denoiser>> {
         Model::Dfn3 => Box::new(DfnDenoiser::new("dfn3", &args.models_dir.join("DeepFilterNet3_onnx.tar.gz"), args.atten_lim)?),
         Model::Dfn3Ll => Box::new(DfnDenoiser::new("dfn3-ll", &args.models_dir.join("DeepFilterNet3_ll_onnx.tar.gz"), args.atten_lim)?),
         Model::Rnnoise => Box::new(RnnoiseDenoiser::new()),
+        Model::FeT => fe("t", args)?,
+        Model::FeB => fe("b", args)?,
+        Model::FeS => fe("s", args)?,
+        Model::FeM => fe("m", args)?,
+        Model::FeL => fe("l", args)?,
     })
+}
+
+fn fe(size: &str, args: &Args) -> Result<Box<dyn Denoiser>> {
+    let path = args.models_dir.join(format!("fastenhancer/fastenhancer_{size}_spec.onnx"));
+    Ok(Box::new(FastEnhancer::new(size, &path)?))
 }
 
 /// Lag (samples) at which `b` best lines up with `a` (b[n + lag] ~ a[n]), over 0..=MAX_LAG.
@@ -118,16 +133,17 @@ fn main() -> Result<()> {
     let noisy = read_wav(&args.input)?;
     let mut dn = build(args.model, &args)?;
     let delay = dn.algorithmic_delay();
+    let hop = dn.hop();
 
     // Pad the tail so the delayed output is complete, and to a whole number of frames.
-    let total = (noisy.len() + delay).div_ceil(FRAME) * FRAME;
+    let total = (noisy.len() + delay).div_ceil(hop) * hop;
     let mut padded = noisy.clone();
     padded.resize(total, 0.0);
     let mut out = vec![0.0f32; total];
 
-    let mut frame_ms = Vec::with_capacity(total / FRAME);
+    let mut frame_ms = Vec::with_capacity(total / hop);
     let wall = Instant::now();
-    for (i, (inp, outp)) in padded.chunks_exact(FRAME).zip(out.chunks_exact_mut(FRAME)).enumerate() {
+    for (i, (inp, outp)) in padded.chunks_exact(hop).zip(out.chunks_exact_mut(hop)).enumerate() {
         let t = Instant::now();
         dn.process_frame(inp, outp)?;
         let ms = t.elapsed().as_secs_f64() * 1e3;
@@ -139,7 +155,9 @@ fn main() -> Result<()> {
     let audio_s = total as f64 / SAMPLE_RATE as f64;
     frame_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let mean = frame_ms.iter().sum::<f64>() / frame_ms.len() as f64;
-    let over_hop = frame_ms.iter().filter(|&&m| m > 10.0).count();
+    // A call that takes longer than the audio it covers is an underrun in a live pipeline.
+    let hop_ms = hop as f64 * 1e3 / SAMPLE_RATE as f64;
+    let over_hop = frame_ms.iter().filter(|&&m| m > hop_ms).count();
 
     // Measured delay: align the output to the clean reference if we have one, else to the noisy input.
     let reference = args.reference.as_deref().map(read_wav).transpose()?;
@@ -173,7 +191,9 @@ fn main() -> Result<()> {
         "frame_ms_p50": percentile(&frame_ms, 0.50),
         "frame_ms_p99": percentile(&frame_ms, 0.99),
         "frame_ms_max": frame_ms.last(),
+        "hop_ms": hop_ms,
         "frames_over_10ms": over_hop,
+        "frames_over_hop": over_hop,
         "algorithmic_delay_ms": ms(delay),
         "measured_delay_ms": ms(measured),
         "si_sdr_in_db": sdr_in,
@@ -184,7 +204,7 @@ fn main() -> Result<()> {
         println!("{report}");
     } else {
         println!("{:<10} {}", dn.name(), args.input.display());
-        println!("  speed   : RTF {:.3} ({:.1}% of one core at real time) | frame mean {:.2} ms, p50 {:.2}, p99 {:.2}, max {:.2} | {} frames > 10 ms", wall_s / audio_s, 100.0 * wall_s / audio_s, mean, percentile(&frame_ms, 0.5), percentile(&frame_ms, 0.99), frame_ms.last().unwrap(), over_hop);
+        println!("  speed   : RTF {:.3} ({:.1}% of one core at real time) | frame mean {:.2} ms, p50 {:.2}, p99 {:.2}, max {:.2} | {} frames > hop ({:.1} ms)", wall_s / audio_s, 100.0 * wall_s / audio_s, mean, percentile(&frame_ms, 0.5), percentile(&frame_ms, 0.99), frame_ms.last().unwrap(), over_hop, hop_ms);
         println!("  delay   : algorithmic {:.1} ms, measured {:.1} ms", ms(delay), ms(measured));
         if let (Some(a), Some(b)) = (sdr_in, sdr_out) {
             println!("  SI-SDR  : {a:.1} dB -> {b:.1} dB ({:+.1} dB)", b - a);

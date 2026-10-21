@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SET = ROOT / "testdata/set"
 RES = ROOT / "results"
 BENCH = ROOT / "target/release/qm-bench"
-MODELS = ["rnnoise", "dfn3", "dfn3-ll"]
+MODELS = ["rnnoise", "dfn3", "dfn3-ll", "fe-t", "fe-b", "fe-s", "fe-m", "fe-l"]
 LISTEN_SNR = 0
 
 
@@ -54,12 +54,12 @@ def main():
             wav.parent.mkdir(parents=True, exist_ok=True)
             cmd = [str(BENCH), "--model", model, "--in", str(SET / m["noisy"]), "--ref", str(SET / m["reference"]),
                    "--out", str(wav), "--models-dir", str(ROOT / "models"), "--json"]
-            if args.atten_lim is not None and model != "rnnoise":
+            if args.atten_lim is not None and model.startswith("dfn"):
                 cmd += ["--atten-lim", str(args.atten_lim)]
             r = json.loads(subprocess.run(cmd, capture_output=True, text=True, check=True).stdout)
             enh = rd(wav)
             n = min(len(clean), len(enh))
-            r.update(category=m["category"], snr_db=m["snr_db"], synthetic_noise=m["synthetic_noise"],
+            r.update(cli=model, category=m["category"], snr_db=m["snr_db"], synthetic_noise=m["synthetic_noise"],
                      stoi_in=float(stoi(clean[:n], noisy[:n], 48000)), stoi_out=float(stoi(clean[:n], enh[:n], 48000)),
                      pause_suppression_db=pause_suppression_db(clean, noisy, enh), snr_measured_db=float(snr_meas))
             rows.append(r)
@@ -93,19 +93,19 @@ def render(rows, args) -> str:
         for c in cats:
             cell = []
             for m in MODELS:
-                rs = [r for r in rows if r["category"] == c and r["model"] == m]
+                rs = [r for r in rows if r["category"] == c and r["cli"] == m]
                 v = mean(rs, key)
                 cell.append("n/a" if v != v else fmt.format(v))
-            inp = [f"{mean([r for r in rows if r['category'] == c and r['model'] == MODELS[0]], 'stoi_in'):.2f}"] if key == "stoi_out" else []
+            inp = [f"{mean([r for r in rows if r['category'] == c and r['cli'] == MODELS[0]], 'stoi_in'):.2f}"] if key == "stoi_out" else []
             syn = " *(synthetic noise)*" if any(r["synthetic_noise"] for r in rows if r["category"] == c) else ""
             L.append(f"| {c}{syn} | " + " | ".join(inp + cell) + " |")
         L.append("")
     L += ["## Speed and delay (this machine; NOT the target i5-8250U)", "",
-          "| model | algorithmic delay | measured delay | frame mean | frame p99 | frame max | RTF (= share of one core) | frames over 10 ms |", "|---|---|---|---|---|---|---|---|"]
+          "| model | hop | algorithmic delay | measured delay | frame mean | frame p99 | frame max | RTF (= share of one core) | frames over hop |", "|---|---|---|---|---|---|---|---|---|"]
     for m in MODELS:
-        rs = [r for r in rows if r["model"] == m]
-        L.append(f"| {m} | {rs[0]['algorithmic_delay_ms']:.0f} ms | {rs[0]['measured_delay_ms']:.0f} ms | {mean(rs, 'frame_ms_mean'):.2f} ms | "
-                 f"{mean(rs, 'frame_ms_p99'):.2f} ms | {max(r['frame_ms_max'] for r in rs):.2f} ms | {100 * mean(rs, 'rtf'):.1f}% | {sum(r['frames_over_10ms'] for r in rs)} |")
+        rs = [r for r in rows if r["cli"] == m]
+        L.append(f"| {m} | {rs[0]['hop_ms']:.1f} ms | {rs[0]['algorithmic_delay_ms']:.1f} ms | {rs[0]['measured_delay_ms']:.1f} ms | {mean(rs, 'frame_ms_mean'):.2f} ms | "
+                 f"{mean(rs, 'frame_ms_p99'):.2f} ms | {max(r['frame_ms_max'] for r in rs):.2f} ms | {100 * mean(rs, 'rtf'):.1f}% | {sum(r['frames_over_hop'] for r in rs)} |")
     L.append("")
     return "\n".join(L)
 

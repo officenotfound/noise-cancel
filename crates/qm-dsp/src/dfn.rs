@@ -35,6 +35,10 @@ impl Denoiser for DfnDenoiser {
         &self.name
     }
 
+    fn hop(&self) -> usize {
+        FRAME
+    }
+
     fn algorithmic_delay(&self) -> usize {
         self.delay
     }
