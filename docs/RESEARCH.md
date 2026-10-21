@@ -68,3 +68,52 @@ Confidence tags: **[primary]** paper/repo/vendor page read directly, **[secondar
 - voxlock: <https://github.com/arbazsiddiqui/voxlock>
 - E3Net (personalized, distillation): <https://arxiv.org/abs/2204.00771>
 - Windows 11 Voice Focus / Voice Clarity (built-in alternative, NPU or software, mixed reports): <https://pureinfotech.com/enable-voice-focus-reduce-background-noise-windows-11/>
+
+---
+
+# Addendum (Oct 2026): can we match Krisp / Apple Voice Isolation?
+
+## A. What is actually known about "Krisp-level"
+- **There is no independent head-to-head** of Krisp, Apple Voice Isolation, Zoom and open models. Every quantitative comparison found is vendor-run or competitor-run. Apple's and Zoom's feature never appeared in any benchmark. [searches]
+- **Krisp is several products.** *Noise Cancellation* (removes environmental noise; the classic app feature) and *Voice Isolation* (also removes other voices; also called Background Voice Cancellation) are different models [Krisp developer pages]. Which one the owner pays for decides what "Krisp-level" means. Krisp's own Voice Isolation benchmark: pooled WER 23.24% raw to 6.24% (-73%) on 265 real recordings with a second voice [Krisp blog, vendor-run].
+- **A competitor (ai-coustics, tests by SLNG) reports Krisp NC and NVIDIA Maxine raised speech-recognition errors** with noise or competing speech (Krisp NC +2.4 to +4.3 pp; over +10 pp on English competing speech). Single, competitor-run source, ASR metric, so it says little about how a *human* hears them, but it shows "noise cancellation" and "isolation" are different jobs.
+- **Commercial model sizes are in our range.** ai-coustics Quail Voice Focus: ~5 MB (S) to ~20 MB (L), 30 ms latency [vendor page]. Krisp SDK: ~25 ms added latency at 16 kHz; its Lite model is about a third of Default's compute [third-party + Krisp blog]. DFN3-LL is ~36 MB fp32, FastEnhancer-S ~0.9 MB.
+- **Apple Voice Isolation:** Apple documents only that it "isolates the voice and attenuates other signals", macOS 12+, Macs from 2018 [Apple docs]. No public detail on the model; **no public API lets an app enable it** (the user picks it in Control Center), so it cannot be scripted into a benchmark. Whether its edge comes from the model, the Mac's microphone array, or both is unknown. I have no source for either claim.
+
+## B. Newer open models worth testing (found this round)
+| Model | Facts | Why it matters |
+|---|---|---|
+| **DPDFNet** (Ceva, arXiv 2512.16420, accepted Speech Communication 2026) | DeepFilterNet2 + dual-path RNN blocks. **Native 48 kHz models**: `dpdfnet2_48khz_hr` 2.58 M params / 2.42 GMAC, `dpdfnet8_48khz_hr` 3.63 M / 7.17 GMAC. ONNX + TFLite + PyTorch checkpoints, streaming API, repo Apache-2.0 (HF model card shows no licence field; confirm before shipping), updated 2026-10-20. Already used for Linux system-wide virtual mics (HushMic). | Direct upgrade path for DFN. Paper (own metrics, caution) says DPDFNet-2 beats DFN3 on three test sets (e.g. PESQ 3.20 vs 2.59 for DFN2 on a hard multilingual low-SNR set) at ~3-4× DFN3's MACs. **Training recipe disclosed**: DNS4 760 h speech + 4,000 h MLS, 181 h noise, MUSAN + FSD50K, 1.6 M iterations. |
+| **Over-attenuation loss + "always-on" fine-tune** (same paper) | Loss on bins where output < clean; fine-tune on 30-40 s continuous clips fixes **truncated speech onsets after 3-4 s of silence** and noise leakage. | Directly relevant: our FastEnhancer digital-silence behaviour is exactly the risk. Also a warning that DNSMOS/NISQA "can favor aggressive suppression", so do not trust those alone. |
+| Personalized DFN2 (Serre et al., arXiv 2404.08022) | DFN2 plus speaker-embedding conditioning, "minimal overhead" | Closest published recipe for "DFN that keeps only me"; no code found. |
+| LGTSE / D-LGTSE (GTCRN-guided target speech extraction) | Code public per search | Another target-speaker option. Unverified size/CPU. |
+| "Employing Real Training Data for DNS" (Xu et al., arXiv 2309.02432) | Trains on real noisy recordings with no clean target using a non-intrusive PESQ network as loss; beats synthetic-only training by +0.32 PESQ / +0.05 DNSMOS vs DNS-2021 baseline | Route to use the owner's **real** rain/dog/horn recordings for training without needing clean pairs. |
+| DFN3 / DFN2 cost reference | DFN3 2.14 M params / **0.35 GMAC**; our measured DFN3-LL (9 M params) is the heavy one | Standard DFN3 is far cheaper than the LL variant we favoured. |
+
+## C. Honest assessment
+| Part of "Krisp / Apple level" | Can we get there? | Evidence | Main risk |
+|---|---|---|---|
+| Steady/loud noise: rain on steel, fans | **Likely yes** | Our DFN3-LL/FE-S/M gain +9-11 dB; DPDFNet claims more | Steel-roof test noise is synthetic; verify on real recordings |
+| Sudden noise: barks, horns | **Likely yes** | DFN3-LL +11/+13 dB, FE-M +13/+12 | Onset leakage; transient guard |
+| Distant voices (yelling outside) without enrolment | **Plausible, unproven** | FE-M/L +6 to +7 dB vs DFN3 +1.5 on a TTS stand-in; a Krisp partner page says no enrolment is needed | Stand-in is synthetic; needs Krisp's benchmark + real clips; probably needs fine-tuning |
+| Voice quality of *your* voice (no warble, no clipped onsets) | **Unknown, the critical one** | Krisp itself says over-isolation deletes primary speech; DPDFNet found onset truncation | Needs listening tests and primary-voice-damage metrics |
+| Real-time on an 8th-gen i5 | **Probably** | DFN3 0.35 GMAC; FE-S/B cheap; DPDFNet-2 ~FE-M cost; Krisp ships Lite models | Not measured on the i5 yet |
+| Polished product (AEC, AGC, all apps, zero glitches) | **Partly, with effort** | Windows glue we must write | Engineering time, not research |
+
+**What would make us confident:** (1) run candidate models on *real* recordings of the owner's noise; (2) run Krisp's public background-voice benchmark with a speech recogniser and compare against Krisp's published 6.24%; (3) simultaneous A/B on the owner's PC: same mic into Krisp and into our app, record both outputs, listen blind; (4) measure the i5.
+
+## D. Recommended next experiments (in order)
+1. Add DPDFNet-2/8 48 kHz to `qm-bench`; compare with DFN3-LL and FastEnhancer (needs ~1 afternoon, same ONNX+state pattern).
+2. Collect 10-20 min of the owner's real noise (phone recordings of roof rain, dogs, horns, yelling, plus the owner reading a script in quiet).
+3. Run Krisp's CC BY-NC VoiceIsolation benchmark through our models and a Whisper-class recogniser.
+4. Decide fine-tuning: DPDFNet or FastEnhancer with the owner's noise, far-voice suppression, over-attenuation loss and always-on clips (few GPU-hours; Linux trainer).
+5. Build Phase 1 only for the winning model family, with the A/B-against-Krisp harness built in.
+
+## Sources (addendum)
+- ai-coustics benchmark page (competitor-run): <https://ai-coustics.com/benchmarks-quantitative>
+- Krisp Voice Isolation benchmark: <https://krisp.ai/blog/voice-isolation-benchmark/>; Krisp developers: <https://krisp.ai/developers/voice-isolation/>
+- Apple mic modes: <https://developer.apple.com/documentation/avfoundation/avcapturedevice/microphonemode.md>; forum on no programmatic enable: <https://developer.apple.com/forums/thread/844448>
+- DPDFNet paper <https://arxiv.org/abs/2512.16420>, repo <https://github.com/ceva-ip/DPDFNet>, models <https://huggingface.co/Ceva-IP/DPDFNet>
+- Personalized DFN2: <https://arxiv.org/abs/2404.08022>; real training data: <https://arxiv.org/abs/2309.02432>
+- ICASSP 2023 DNS challenge (interfering talkers + enrolment): <https://arxiv.org/abs/2303.11510>
+- Fora Soft guide (secondary, mostly uncited): <https://www.forasoft.com/learn/ai-for-video-engineering/articles-ai/real-time-noise-suppression-krisp-rnnoise-deepfilternet>
