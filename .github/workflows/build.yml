@@ -2,16 +2,32 @@ name: build
 on:
   push:
   workflow_dispatch:
+env:
+  # Faster CI builds: tract compiles slowly with fat LTO, and it gains little there.
+  CARGO_PROFILE_RELEASE_LTO: thin
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 jobs:
-  windows-bench:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p qm-bench
-      - run: cargo test --release -p qm-dsp
+      - name: Build
+        run: cargo build --release -p qm-app -p qm-cli -p qm-bench
+      - name: Test
+        run: cargo test --release -p qm-dsp -p qm-engine -p qm-win -p qm-app
+      - name: Fetch models
+        shell: bash
+        run: |
+          sh scripts/fetch_models.sh
+          sh scripts/fetch_models_fastenhancer.sh
+          sh scripts/fetch_models_dpdfnet.sh
+      - name: Package
+        shell: bash
+        run: sh scripts/package_windows.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: qm-bench-windows
-          path: target/release/qm-bench.exe
+          name: QuietMic-windows
+          path: dist/QuietMic
+          retention-days: 14

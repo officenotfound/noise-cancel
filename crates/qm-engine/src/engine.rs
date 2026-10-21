@@ -20,6 +20,8 @@ pub struct Engine {
     limiter: Limiter,
     governor: Governor,
     switches: Vec<(usize, ModelId)>,
+    /// Exponential moving average of (model call time / hop duration): the share of one core the model uses.
+    load: f64,
 }
 
 impl Engine {
@@ -30,7 +32,7 @@ impl Engine {
         let reframer = Reframer::new(cfg.ladder[tier].build(&models_dir, cfg.atten_lim_db)?, cfg.block);
         let gate = ResidualGate::new(cfg.gate.clone());
         let limiter = Limiter::new(cfg.limiter_ceiling * 0.8, cfg.limiter_ceiling);
-        Ok(Self { cfg, models_dir, tier, reframer, gate, limiter, governor: Governor::new(), switches: Vec::new() })
+        Ok(Self { cfg, models_dir, tier, reframer, gate, limiter, governor: Governor::new(), switches: Vec::new(), load: 0.0 })
     }
 
     pub fn model(&self) -> ModelId {
@@ -51,6 +53,11 @@ impl Engine {
         &self.switches
     }
 
+    /// Recent share of one CPU core used by the model (0.0 to 1.0+).
+    pub fn load(&self) -> f64 {
+        self.load
+    }
+
     pub fn gate(&self) -> &ResidualGate {
         &self.gate
     }
@@ -62,9 +69,11 @@ impl Engine {
         for s in output.iter_mut() {
             *s = self.limiter.process(*s);
         }
-        if self.cfg.auto_govern {
-            for (elapsed, hop) in timings {
-                match self.governor.observe(elapsed, hop as f64 / SAMPLE_RATE as f64) {
+        for (elapsed, hop) in timings {
+            let hop_s = hop as f64 / SAMPLE_RATE as f64;
+            self.load += 0.02 * (elapsed / hop_s - self.load);
+            if self.cfg.auto_govern {
+                match self.governor.observe(elapsed, hop_s) {
                     Action::StepDown if self.tier + 1 < self.cfg.ladder.len() => self.set_tier(self.tier + 1)?,
                     Action::StepUp if self.tier > 0 => self.set_tier(self.tier - 1)?,
                     _ => {}

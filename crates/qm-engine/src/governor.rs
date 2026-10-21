@@ -121,6 +121,11 @@ pub fn calibrate(models_dir: &Path, ids: &[ModelId], seconds: f32) -> Result<Vec
             m.process_frame(chunk, &mut buf)?;
             if i >= 30 {
                 ms.push(t.elapsed().as_secs_f64() * 1e3);
+                // Clearly too heavy for real time: stop early so calibration stays short on slow PCs.
+                let hop_ms = hop as f64 * 1e3 / 48_000.0;
+                if ms.len() >= 40 && ms.iter().sum::<f64>() / ms.len() as f64 > 0.6 * hop_ms {
+                    break;
+                }
             }
         }
         ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
