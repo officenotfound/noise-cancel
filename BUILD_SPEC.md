@@ -387,3 +387,22 @@ Takeaways:
 - **FastEnhancer outputs exact digital silence between words** (pause suppression saturates at ≥120 dB). That is aggressive gating: it may sound "dead" and could clip soft word onsets. Needs listening checks and a measure of primary-voice damage before choosing it.
 - DFN3-LL still wins on dog barks, car horns and the combined case; FE-M/L are close to it or ahead on barks.
 - Tier ladder draft for §15 on the M1 numbers: Max = DFN3-LL (or FE-M), High = FE-S, Balanced = FE-B, Lite = FE-T, Emergency = RNNoise. Final tier assignment waits for the i5 measurements.
+
+---
+
+## 17. DPDFNet 48 kHz results (M1 Pro)
+
+DPDFNet (`dpdfnet2_48khz_hr`, `dpdfnet8_48khz_hr`, Ceva, code Apache-2.0; **weights licence not stated on the HF model card, confirm before redistributing**) integrated in `qm-dsp::DpdfNet` (tract 0.23, state vector from ONNX metadata, Vorbis-window STFT with 50% overlap). **Measured end-to-end delay = 50 ms** (STFT 10 ms + ~40 ms model look-ahead), not the 10 ms the framing alone suggests.
+
+Average SI-SDR gain (dB) vs the other top candidates:
+| | DFN3-LL | FE-S | FE-M | DP-2 | DP-8 |
+|---|---|---|---|---|---|
+| rain | +9.5 | +9.2 | +9.1 | **+10.6** | **+10.8** |
+| rain on steel* | +11.1 | +10.0 | +11.3 | +12.1 | **+12.5** |
+| dog bark | +11.4 | +9.4 | +12.6 | +12.9 | **+14.3** |
+| car horn | **+12.7** | +11.0 | +11.5 | +10.2 | +11.0 |
+| distant yelling* | +1.4 | +4.5 | +6.2 | +7.1 | **+9.7** |
+| all at once* | **+10.8** | +7.1 | +9.0 | +6.9 | +7.0 |
+| core % / delay | 17% / 10 ms | 5% / 10.7 ms | 19% / 14.7 ms | 14% / **50 ms** | 36% / **50 ms** |
+
+DPDFNet gives the best noise removal on rain, barks and distant voices but costs 50 ms delay (over the 30 ms budget) and ran 3-6 frames over the hop on this machine. DP-8 is too heavy for the target i5. A retrained low-look-ahead DPDFNet is the obvious upgrade path (checkpoints and PyTorch code are public).

@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 $rows = @()
 foreach ($wav in Get-ChildItem .\audio\*.wav) {
-  foreach ($m in "rnnoise", "dfn3", "dfn3-ll", "fe-t", "fe-b", "fe-s", "fe-m", "fe-l") {
+  foreach ($m in "rnnoise", "dfn3", "dfn3-ll", "fe-t", "fe-b", "fe-s", "fe-m", "fe-l", "dp2", "dp8") {
     $j = .\qm-bench.exe --model $m --in $wav.FullName --models-dir .\models --json | ConvertFrom-Json
     $rows += [pscustomobject]@{
       model = $m; clip = $wav.BaseName

@@ -1,10 +1,12 @@
 //! Platform-independent DSP for QuietMic. Everything here must be testable on macOS.
 
 mod dfn;
+mod dpdfnet;
 mod fastenhancer;
 mod rnnoise;
 
 pub use dfn::DfnDenoiser;
+pub use dpdfnet::DpdfNet;
 pub use fastenhancer::FastEnhancer;
 pub use rnnoise::RnnoiseDenoiser;
 
@@ -85,6 +87,16 @@ mod tests {
             let mut dn = FastEnhancer::new(m, &p).unwrap();
             assert_eq!(dn.hop(), hop, "{m}");
             assert_eq!(dn.algorithmic_delay(), 1024 - hop, "{m}");
+            assert!(run(&mut dn, 40).iter().all(|s| s.is_finite()), "{m}");
+        }
+    }
+
+    #[test]
+    fn dpdfnet_runs_and_is_finite() {
+        for m in ["dpdfnet2_48khz_hr", "dpdfnet8_48khz_hr"] {
+            let Some(p) = model(&format!("dpdfnet/{m}.onnx")) else { continue };
+            let mut dn = DpdfNet::new(m, &p).unwrap();
+            assert_eq!(dn.hop(), FRAME, "{m}");
             assert!(run(&mut dn, 40).iter().all(|s| s.is_finite()), "{m}");
         }
     }

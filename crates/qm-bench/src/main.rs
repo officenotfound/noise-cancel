@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
-use qm_dsp::{Denoiser, DfnDenoiser, FastEnhancer, RnnoiseDenoiser, SAMPLE_RATE};
+use qm_dsp::{Denoiser, DfnDenoiser, DpdfNet, FastEnhancer, RnnoiseDenoiser, SAMPLE_RATE};
 
 /// Frames excluded from the timing stats while the runtime warms up.
 const WARMUP_FRAMES: usize = 20;
@@ -24,6 +24,8 @@ enum Model {
     FeS,
     FeM,
     FeL,
+    Dp2,
+    Dp8,
 }
 
 #[derive(Parser)]
@@ -87,12 +89,18 @@ fn build(model: Model, args: &Args) -> Result<Box<dyn Denoiser>> {
         Model::FeS => fe("s", args)?,
         Model::FeM => fe("m", args)?,
         Model::FeL => fe("l", args)?,
+        Model::Dp2 => dp("dpdfnet2_48khz_hr", args)?,
+        Model::Dp8 => dp("dpdfnet8_48khz_hr", args)?,
     })
 }
 
 fn fe(size: &str, args: &Args) -> Result<Box<dyn Denoiser>> {
     let path = args.models_dir.join(format!("fastenhancer/fastenhancer_{size}_spec.onnx"));
     Ok(Box::new(FastEnhancer::new(size, &path)?))
+}
+
+fn dp(name: &str, args: &Args) -> Result<Box<dyn Denoiser>> {
+    Ok(Box::new(DpdfNet::new(name, &args.models_dir.join(format!("dpdfnet/{name}.onnx")))?))
 }
 
 /// Lag (samples) at which `b` best lines up with `a` (b[n + lag] ~ a[n]), over 0..=MAX_LAG.

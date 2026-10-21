@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SET = ROOT / "testdata/set"
 RES = ROOT / "results"
 BENCH = ROOT / "target/release/qm-bench"
-MODELS = ["rnnoise", "dfn3", "dfn3-ll", "fe-t", "fe-b", "fe-s", "fe-m", "fe-l"]
+MODELS = ["rnnoise", "dfn3", "dfn3-ll", "fe-t", "fe-b", "fe-s", "fe-m", "fe-l", "dp2", "dp8"]
 LISTEN_SNR = 0
 PAUSE_CAP_DB = 60.0
 
@@ -39,6 +39,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--atten-lim", type=float, default=None)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--only", default="", help="comma-separated model names to (re)run and merge into results.json")
     ap.add_argument("--render-only", action="store_true", help="rebuild RESULTS.md from results.json without re-running")
     args = ap.parse_args()
     if args.render_only:
@@ -46,15 +47,20 @@ def main():
         return
     out_dir = RES / f"audio{args.tag}"
     listen = RES / f"listen{args.tag}"
-    shutil.rmtree(out_dir, ignore_errors=True)
-    shutil.rmtree(listen, ignore_errors=True)
+    only = [m for m in args.only.split(",") if m]
+    prev = []
+    if only:
+        prev = [r for r in json.loads((RES / f"results{args.tag}.json").read_text()) if r["cli"] not in only]
+    else:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        shutil.rmtree(listen, ignore_errors=True)
 
     rows = []
     for m in json.loads((SET / "manifest.json").read_text()):
         clean, noisy = rd(SET / m["reference"]), rd(SET / m["noisy"])
         nz = noisy - clean
         snr_meas = 20 * np.log10(np.sqrt((clean ** 2).mean()) / np.sqrt((nz ** 2).mean()))
-        for model in MODELS:
+        for model in (only or MODELS):
             wav = out_dir / model / m["noisy"]
             wav.parent.mkdir(parents=True, exist_ok=True)
             cmd = [str(BENCH), "--model", model, "--in", str(SET / m["noisy"]), "--ref", str(SET / m["reference"]),
@@ -76,6 +82,7 @@ def main():
                 shutil.copy(SET / m["noisy"], d / "0_noisy.wav")
                 shutil.copy(SET / m["reference"], d / "0_clean_reference.wav")
     RES.mkdir(exist_ok=True)
+    rows = sorted(prev + rows, key=lambda r: (MODELS.index(r["cli"]), r["category"], r["snr_db"]))
     (RES / f"results{args.tag}.json").write_text(json.dumps(rows, indent=1))
     (RES / f"RESULTS{args.tag}.md").write_text(render(rows, args))
 

@@ -4,39 +4,39 @@ Machine: Apple M1 Pro (arm64), qm-bench release build. attenuation limit: defaul
 
 ## SI-SDR gain (dB, higher is better)
 
-| category | rnnoise | dfn3 | dfn3-ll | fe-t | fe-b | fe-s | fe-m | fe-l |
-|---|---|---|---|---|---|---|---|---|
-| rain | +5.6 | +9.2 | +9.5 | +7.7 | +8.7 | +9.2 | +9.1 | +9.7 |
-| rain_steel *(synthetic noise)* | +6.7 | +10.1 | +11.1 | +7.0 | +9.4 | +10.0 | +11.3 | +11.5 |
-| dog_bark | -0.2 | +10.5 | +11.4 | +5.9 | +9.5 | +9.4 | +12.6 | +13.3 |
-| car_horn | +5.7 | +11.4 | +12.7 | +6.6 | +9.8 | +11.0 | +11.5 | +11.7 |
-| yelling_far *(synthetic noise)* | +0.2 | +1.8 | +1.4 | +1.9 | +3.0 | +4.5 | +6.2 | +7.4 |
-| babble | -0.8 | -7.6 | -1.1 | -2.8 | +0.1 | -1.8 | -2.0 | +0.8 |
-| worst_case *(synthetic noise)* | +3.1 | +7.3 | +10.8 | +5.9 | +6.6 | +7.1 | +9.0 | +8.9 |
+| category | rnnoise | dfn3 | dfn3-ll | fe-t | fe-b | fe-s | fe-m | fe-l | dp2 | dp8 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| babble | -0.8 | -7.6 | -1.1 | -2.8 | +0.1 | -1.8 | -2.0 | +0.8 | -1.6 | -2.6 |
+| car_horn | +5.7 | +11.4 | +12.7 | +6.6 | +9.8 | +11.0 | +11.5 | +11.7 | +10.2 | +11.0 |
+| dog_bark | -0.2 | +10.5 | +11.4 | +5.9 | +9.5 | +9.4 | +12.6 | +13.3 | +12.9 | +14.3 |
+| rain | +5.6 | +9.2 | +9.5 | +7.7 | +8.7 | +9.2 | +9.1 | +9.7 | +10.6 | +10.8 |
+| rain_steel *(synthetic noise)* | +6.7 | +10.1 | +11.1 | +7.0 | +9.4 | +10.0 | +11.3 | +11.5 | +12.1 | +12.5 |
+| worst_case *(synthetic noise)* | +3.1 | +7.3 | +10.8 | +5.9 | +6.6 | +7.1 | +9.0 | +8.9 | +6.9 | +7.0 |
+| yelling_far *(synthetic noise)* | +0.2 | +1.8 | +1.4 | +1.9 | +3.0 | +4.5 | +6.2 | +7.4 | +7.1 | +9.7 |
 
 ## STOI after processing (0-1, higher is better; input shown first)
 
-| category |  input |rnnoise | dfn3 | dfn3-ll | fe-t | fe-b | fe-s | fe-m | fe-l |
-|---|---|---|---|---|---|---|---|---|---|
-| rain | 0.61 | 0.65 | 0.70 | 0.72 | 0.65 | 0.66 | 0.68 | 0.71 | 0.71 |
-| rain_steel *(synthetic noise)* | 0.79 | 0.84 | 0.89 | 0.91 | 0.77 | 0.85 | 0.88 | 0.91 | 0.91 |
-| dog_bark | 0.91 | 0.92 | 0.98 | 0.99 | 0.96 | 0.96 | 0.96 | 0.98 | 0.97 |
-| car_horn | 0.90 | 0.92 | 0.96 | 0.97 | 0.93 | 0.95 | 0.95 | 0.97 | 0.98 |
-| yelling_far *(synthetic noise)* | 0.85 | 0.84 | 0.85 | 0.87 | 0.85 | 0.87 | 0.89 | 0.91 | 0.93 |
-| babble | 0.68 | 0.65 | 0.50 | 0.69 | 0.57 | 0.61 | 0.60 | 0.60 | 0.66 |
-| worst_case *(synthetic noise)* | 0.64 | 0.66 | 0.76 | 0.80 | 0.67 | 0.72 | 0.73 | 0.78 | 0.77 |
+| category |  input |rnnoise | dfn3 | dfn3-ll | fe-t | fe-b | fe-s | fe-m | fe-l | dp2 | dp8 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| babble | 0.68 | 0.65 | 0.50 | 0.69 | 0.57 | 0.61 | 0.60 | 0.60 | 0.66 | 0.61 | 0.59 |
+| car_horn | 0.90 | 0.92 | 0.96 | 0.97 | 0.93 | 0.95 | 0.95 | 0.97 | 0.98 | 0.97 | 0.98 |
+| dog_bark | 0.91 | 0.92 | 0.98 | 0.99 | 0.96 | 0.96 | 0.96 | 0.98 | 0.97 | 0.98 | 0.98 |
+| rain | 0.61 | 0.65 | 0.70 | 0.72 | 0.65 | 0.66 | 0.68 | 0.71 | 0.71 | 0.74 | 0.75 |
+| rain_steel *(synthetic noise)* | 0.79 | 0.84 | 0.89 | 0.91 | 0.77 | 0.85 | 0.88 | 0.91 | 0.91 | 0.92 | 0.93 |
+| worst_case *(synthetic noise)* | 0.64 | 0.66 | 0.76 | 0.80 | 0.67 | 0.72 | 0.73 | 0.78 | 0.77 | 0.82 | 0.83 |
+| yelling_far *(synthetic noise)* | 0.85 | 0.84 | 0.85 | 0.87 | 0.85 | 0.87 | 0.89 | 0.91 | 0.93 | 0.92 | 0.95 |
 
 ## Pause suppression (dB, higher is better; capped at 60 = output is digital silence)
 
-| category | rnnoise | dfn3 | dfn3-ll | fe-t | fe-b | fe-s | fe-m | fe-l |
-|---|---|---|---|---|---|---|---|---|
-| rain | 46.8 | 45.7 | 41.1 | 43.6 | 60.0 | 60.0 | 60.0 | 60.0 |
-| rain_steel *(synthetic noise)* | 15.3 | 48.1 | 38.1 | 42.9 | 45.6 | 56.3 | 45.5 | 44.1 |
-| dog_bark | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
-| car_horn | 30.0 | 35.0 | 29.8 | 33.8 | 30.6 | 35.3 | 31.7 | 34.5 |
-| yelling_far *(synthetic noise)* | 1.1 | 10.2 | 7.5 | 9.8 | 13.3 | 12.4 | 9.5 | 13.5 |
-| babble | 0.7 | 5.9 | 13.9 | 3.5 | 10.6 | 6.5 | 14.9 | 12.2 |
-| worst_case *(synthetic noise)* | 38.7 | 46.0 | 41.9 | 60.0 | 60.0 | 60.0 | 60.0 | 60.0 |
+| category | rnnoise | dfn3 | dfn3-ll | fe-t | fe-b | fe-s | fe-m | fe-l | dp2 | dp8 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| babble | 0.7 | 5.9 | 13.9 | 3.5 | 10.6 | 6.5 | 14.9 | 12.2 | 11.5 | 5.6 |
+| car_horn | 30.0 | 35.0 | 29.8 | 33.8 | 30.6 | 35.3 | 31.7 | 34.5 | 46.2 | 44.5 |
+| dog_bark | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| rain | 46.8 | 45.7 | 41.1 | 43.6 | 60.0 | 60.0 | 60.0 | 60.0 | 60.0 | 60.0 |
+| rain_steel *(synthetic noise)* | 15.3 | 48.1 | 38.1 | 42.9 | 45.6 | 56.3 | 45.5 | 44.1 | 37.9 | 37.7 |
+| worst_case *(synthetic noise)* | 38.7 | 46.0 | 41.9 | 60.0 | 60.0 | 60.0 | 60.0 | 60.0 | 54.7 | 60.0 |
+| yelling_far *(synthetic noise)* | 1.1 | 10.2 | 7.5 | 9.8 | 13.3 | 12.4 | 9.5 | 13.5 | 27.3 | 38.6 |
 
 ## Speed and delay (this machine; NOT the target i5-8250U)
 
@@ -50,3 +50,5 @@ Machine: Apple M1 Pro (arm64), qm-bench release build. attenuation limit: defaul
 | fe-s | 10.7 ms | 10.7 ms | 10.7 ms | 0.56 ms | 0.63 ms | 1.89 ms | 5.3% | 0 |
 | fe-m | 6.7 ms | 14.7 ms | 14.7 ms | 1.28 ms | 1.44 ms | 7.79 ms | 19.2% | 2 |
 | fe-l | 4.2 ms | 17.2 ms | 17.2 ms | 2.88 ms | 3.14 ms | 30.26 ms | 69.2% | 74 |
+| dp2 | 10.0 ms | 50.0 ms | 50.0 ms | 1.37 ms | 1.59 ms | 68.13 ms | 13.7% | 6 |
+| dp8 | 10.0 ms | 50.0 ms | 50.0 ms | 3.59 ms | 3.94 ms | 13.77 ms | 35.9% | 3 |
