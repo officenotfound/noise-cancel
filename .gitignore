@@ -1,6 +1,11 @@
 /target
 /models/*
 !/models/.gitkeep
+!/models/SHA256SUMS
+!/models/*/
+/models/*/*
+!/models/*/SHA256SUMS
+/dist
 /testdata/*
 !/testdata/.gitkeep
 __pycache__/
