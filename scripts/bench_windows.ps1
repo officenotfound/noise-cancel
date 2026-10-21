@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Stop"
 $rows = @()
 foreach ($wav in Get-ChildItem .\audio\*.wav) {
-  foreach ($m in "rnnoise", "dfn3", "dfn3-ll") {
+  foreach ($m in "rnnoise", "dfn3", "dfn3-ll", "fe-t", "fe-b", "fe-s", "fe-m", "fe-l") {
     $j = .\qm-bench.exe --model $m --in $wav.FullName --models-dir .\models --json | ConvertFrom-Json
     $rows += [pscustomobject]@{
       model = $m; clip = $wav.BaseName
@@ -13,7 +13,8 @@ foreach ($wav in Get-ChildItem .\audio\*.wav) {
       frame_mean_ms = [math]::Round($j.frame_ms_mean, 2)
       frame_p99_ms = [math]::Round($j.frame_ms_p99, 2)
       frame_max_ms = [math]::Round($j.frame_ms_max, 2)
-      frames_over_10ms = $j.frames_over_10ms
+      hop_ms = [math]::Round($j.hop_ms, 1)
+      frames_over_hop = $j.frames_over_hop
     }
   }
 }

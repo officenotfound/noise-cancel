@@ -16,6 +16,7 @@ RES = ROOT / "results"
 BENCH = ROOT / "target/release/qm-bench"
 MODELS = ["rnnoise", "dfn3", "dfn3-ll", "fe-t", "fe-b", "fe-s", "fe-m", "fe-l"]
 LISTEN_SNR = 0
+PAUSE_CAP_DB = 60.0
 
 
 def rd(p) -> np.ndarray:
@@ -38,7 +39,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--atten-lim", type=float, default=None)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--render-only", action="store_true", help="rebuild RESULTS.md from results.json without re-running")
     args = ap.parse_args()
+    if args.render_only:
+        (RES / f"RESULTS{args.tag}.md").write_text(render(json.loads((RES / f"results{args.tag}.json").read_text()), args))
+        return
     out_dir = RES / f"audio{args.tag}"
     listen = RES / f"listen{args.tag}"
     shutil.rmtree(out_dir, ignore_errors=True)
@@ -78,7 +83,8 @@ def main():
 def render(rows, args) -> str:
     cats = list(dict.fromkeys(r["category"] for r in rows))
     def mean(rs, k):
-        vals = [r[k] for r in rs if r[k] == r[k]]
+        # Pause suppression saturates when the output is exact digital silence; cap so averages stay comparable.
+        vals = [min(r[k], PAUSE_CAP_DB) if k == "pause_suppression_db" else r[k] for r in rs if r[k] == r[k]]
         return float(np.mean(vals)) if vals else float("nan")
     L = [f"# Phase 0 results{' (' + args.tag + ')' if args.tag else ''}", "",
          f"Machine: Apple M1 Pro (arm64), qm-bench release build. attenuation limit: {args.atten_lim or 'default 100 dB'}. "
@@ -87,7 +93,7 @@ def render(rows, args) -> str:
          "(higher = noise/others removed between words).", ""]
     for title, key, fmt in [("SI-SDR gain (dB, higher is better)", "si_sdr_gain_db", "{:+.1f}"),
                             ("STOI after processing (0-1, higher is better; input shown first)", "stoi_out", "{:.2f}"),
-                            ("Pause suppression (dB, higher is better)", "pause_suppression_db", "{:.1f}")]:
+                            ("Pause suppression (dB, higher is better; capped at 60 = output is digital silence)", "pause_suppression_db", "{:.1f}")]:
         L += [f"## {title}", "", "| category | " + (" input |" if key == "stoi_out" else "") + " | ".join(MODELS) + " |",
               "|---|" + ("---|" if key == "stoi_out" else "") + "---|" * len(MODELS)]
         for c in cats:
