@@ -421,12 +421,37 @@ DPDFNet gives the best noise removal on rain, barks and distant voices but costs
 **Presets** (`Config::from_preset`; each is a model ladder, heaviest first, plus gate settings):
 | preset | ladder | gate (threshold / ratio / max) | use |
 |---|---|---|---|
-| auto, low-latency | dfn3-ll > fe-s > fe-b > fe-t > rnnoise | 20 dB / 4:1 / 45 dB | live calls, lowest delay |
-| balanced | fe-m > dfn3-ll > fe-s > … | 18 / 5:1 / 50 | |
-| max-noise-removal | dp8 > dp2 > fe-m > dfn3-ll > … | 15 / 6:1 / 60 | accepts ~50 ms delay (DPDFNet) |
-| max-voice-separation | fe-m > dfn3-ll > fe-s > … | 12 / 6:1 / 60 | other/distant voices |
-| light | fe-b > fe-t > rnnoise | 20 / 4:1 / 40 | old / battery |
+| auto, low-latency | dfn3-ll > fe-s > fe-b > fe-t > rnnoise | gentle gate (see below) | live calls, lowest delay |
+| balanced | fe-m > dfn3-ll > fe-s > … | gentle gate | |
+| max-noise-removal | dp8 > dp2 > fe-m > dfn3-ll > … | gentle gate | accepts ~50 ms delay (DPDFNet) |
+| max-voice-separation | fe-m > dfn3-ll > fe-s > … | gentle gate | other/distant voices (**currently identical to balanced; needs a real differentiator, see §19**) |
+| light | fe-b > fe-t > rnnoise | gentle gate | old / battery |
 
 **Tier selection:** `governor::calibrate` times every ladder model on the machine (synthetic speech+noise, single thread); `governor::pick` takes the heaviest model with p99 ≤ 40% and mean ≤ 25% of its hop. At runtime `Governor` steps down after 3 consecutive overruns or ≥ 20/100 calls above 70% of the hop, and steps up after 60 s all below 40% (30 s cooldown after any change). **Not yet built:** crossfaded model hot-swap (the engine currently restarts the new model with fresh state; the audio layer must switch in a pause or crossfade), the Windows audio layer, tray UI, settings persistence (`Config` already derives serde, intended as TOML).
 
 **Evaluate presets:** `qm process --preset P in.wav out.wav`, `.venv/bin/python scripts/eval_presets.py` → `results/PRESETS.md`.
+
+---
+
+## 19. Preset evaluation findings (M1 Pro; `results/PRESETS.md`, `scripts/eval_presets.py`, `gate_grid.py`, `consensus_test.py`)
+
+**1. The aggressive residual gate was harmful and was removed.** Gate 20 dB / 4:1 / 120 ms hold dropped clean-voice STOI from 0.998 to 0.967 (stronger variants to 0.90) and cut mixed SI-SDR gains by 2-7 dB, while adding almost no noise removal. Tested alternatives: `t30 r3 m25 h300` leaves the voice untouched (STOI 0.998) and helps car horns (+14 dB) and barks (+2 dB) only. All presets now use that gentle gate. **A level gate cannot fix leaks; the model has to.**
+
+**2. Noise-only test (the owner's "must never get through" criterion).** Noise alone at the level it had in the 0 dB mix, after 10 s of voice. Attenuation in dB (higher = quieter output; >60 means essentially silent):
+| model | rain | steel* | dog bark | car horn | far yelling* | all at once* |
+|---|---|---|---|---|---|---|
+| dfn3-ll | 20 | 13 | 8 | 48 | 0.4 | 15 |
+| fe-m | 41 | 18 | **1** | 18 | 0.2 | 19 |
+| fe-b | 41 | **32** | 8 | 25 | **14** | **36** |
+| dp2 | **156 (silence)** | 14 | **149 (silence)** | **79** | 3.5 | 15 |
+*synthetic noise. **No model keeps every noise out.** DPDFNet-2 outputs digital silence for plain rain, barks and horns (best by far) but fails steel-roof rain and yelling and costs ~50 ms. FE-B is the best on steel-roof rain / yelling / combined but passes barks. FE-M passes barks almost untouched when no speech is present even though its mixed-speech scores look fine: **always run the noise-only test, mixed-speech scores hide this failure.**
+
+**3. Cascade gate (cheap second model as "is anyone speaking?" detector, `consensus_test.py`):** muting DFN3-LL when FE-B output is silent gave +7 dB (rain), +6 (steel), +5 (all at once), +3 (yelling), nothing on barks, with no voice damage (STOI 0.998 at hold 300 ms) for ~4% extra CPU and no extra delay if the main audio is delayed to match the detector (~10 ms more total). Modest; keep as an optional "extra noise guard" feature, not a fix.
+
+**4. Voice damage by the model itself (no gate), clean speech STOI:** dfn3-ll 0.998, fe-m 0.999, fe-b 0.984, dp2 0.981. FE-B and DPDFNet slightly alter clean speech; check by listening.
+
+**5. Implications / next work (in priority order):**
+ a. **Fine-tune a model for noise-only → silence** on the owner's noises (rain on tin, dogs, horns, yelling) plus the over-attenuation loss and always-on fine-tuning from the DPDFNet paper. This is the only route to "never gets through". Base candidates: DPDFNet-2 (best noise-only behaviour; retrain with 10-20 ms look-ahead instead of 40) or FastEnhancer (cheap, MIT).
+ b. Give `max-voice-separation` a genuine differentiator (a tighter model for far voices, or the enrolled-voice model); today it duplicates `balanced`.
+ c. Windows audio layer, tray UI, crossfaded model switching (not built).
+ d. Collect the owner's real recordings; synthetic steel-rain and TTS yelling are stand-ins.

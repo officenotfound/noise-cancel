@@ -45,6 +45,12 @@ enum Cmd {
         /// Override the gate threshold (dB below the learned speech level).
         #[arg(long)]
         gate_threshold: Option<f32>,
+        #[arg(long)]
+        gate_ratio: Option<f32>,
+        #[arg(long)]
+        gate_max: Option<f32>,
+        #[arg(long)]
+        gate_hold: Option<f32>,
         /// Keep the total delay in the output instead of removing it.
         #[arg(long)]
         keep_delay: bool,
@@ -91,13 +97,22 @@ fn main() -> Result<()> {
             }
             println!("\npick for '{}': {} (p99 <= 40% of hop, mean <= 25%)", preset.name(), pick(&c.ladder, &t, 0.4, 0.25).name());
         }
-        Cmd::Process { preset, input, output, model, block, no_gate, gate_threshold, keep_delay } => {
+        Cmd::Process { preset, input, output, model, block, no_gate, gate_threshold, gate_ratio, gate_max, gate_hold, keep_delay } => {
             let mut cfg = Config::from_preset(preset);
             cfg.block = block;
             cfg.auto_govern = false;
             cfg.gate.enabled &= !no_gate;
             if let Some(t) = gate_threshold {
                 cfg.gate.threshold_below_speech_db = t;
+            }
+            if let Some(v) = gate_ratio {
+                cfg.gate.ratio = v;
+            }
+            if let Some(v) = gate_max {
+                cfg.gate.max_atten_db = v;
+            }
+            if let Some(v) = gate_hold {
+                cfg.gate.hold_ms = v;
             }
             let mut engine = Engine::new(cfg, &cli.models_dir, model)?;
             let delay = engine.total_delay();

@@ -92,12 +92,16 @@ impl Config {
             lookahead_ms: 2.5,
             initial_speech_db: -28.0,
         };
+        // Gate settings: scripts/gate_grid.py showed tighter gates (20 dB / 4:1 / 120 ms hold and stricter) chop
+        // soft consonants (clean-voice STOI 0.998 -> 0.967 and worse) for almost no extra noise removal, so every
+        // preset uses the same gentle, tested setting. The model, not the gate, decides how much noise gets through.
+        let gentle = || gate(30.0, 3.0, 25.0, 300.0, 40.0);
         let (ladder, g): (Vec<ModelId>, GateConfig) = match preset {
-            Preset::Auto | Preset::LowLatency => (vec![Dfn3Ll, FeS, FeB, FeT, Rnnoise], gate(20.0, 4.0, 45.0, 120.0, 40.0)),
-            Preset::Balanced => (vec![FeM, Dfn3Ll, FeS, FeB, FeT, Rnnoise], gate(18.0, 5.0, 50.0, 120.0, 40.0)),
-            Preset::MaxNoiseRemoval => (vec![Dp8, Dp2, FeM, Dfn3Ll, FeS, FeB, FeT, Rnnoise], gate(15.0, 6.0, 60.0, 150.0, 50.0)),
-            Preset::MaxVoiceSeparation => (vec![FeM, Dfn3Ll, FeS, FeB, FeT, Rnnoise], gate(12.0, 6.0, 60.0, 150.0, 50.0)),
-            Preset::Light => (vec![FeB, FeT, Rnnoise], gate(20.0, 4.0, 40.0, 120.0, 40.0)),
+            Preset::Auto | Preset::LowLatency => (vec![Dfn3Ll, FeS, FeB, FeT, Rnnoise], gentle()),
+            Preset::Balanced => (vec![FeM, Dfn3Ll, FeS, FeB, FeT, Rnnoise], gentle()),
+            Preset::MaxNoiseRemoval => (vec![Dp8, Dp2, FeM, Dfn3Ll, FeS, FeB, FeT, Rnnoise], gentle()),
+            Preset::MaxVoiceSeparation => (vec![FeM, Dfn3Ll, FeS, FeB, FeT, Rnnoise], gentle()),
+            Preset::Light => (vec![FeB, FeT, Rnnoise], gentle()),
         };
         Config { preset, ladder, atten_lim_db: None, gate: g, limiter_ceiling: 0.89, block: 480, auto_govern: true }
     }
