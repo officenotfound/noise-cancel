@@ -361,3 +361,29 @@ Full tables: `results/RESULTS.md`. Reproduce: `scripts/fetch_models.sh`, `script
 5. **UI:** show the active tier, CPU %, and why it was chosen ("Balanced: your CPU can't run High reliably on battery").
 
 **Dependency:** needs all tier models behind the one `Denoiser` trait (done in `qm-dsp` for DFN3, DFN3-LL, FastEnhancer T/B/S/M/L, RNNoise) with per-model `hop()`, and a resampling/re-framing adapter between the 10 ms capture period and model hops (320/480/512 samples). Add the adapter's extra buffering to the displayed latency.
+
+---
+
+## 16. FastEnhancer 48 kHz vs DeepFilterNet3 (measured on M1 Pro; i5 numbers pending)
+
+Integration notes: use the **spec2spec** ONNX (`fastenhancer_<t|b|s|m|l>_spec.onnx`, release `onnx-48khz-v1`, MIT, hashes in `models/fastenhancer/SHA256SUMS`) and do the STFT/iSTFT in Rust (periodic Hann 1024, hop t/b/s 512, m 320, l 200, raw complex spectrum in/out, torch.istft-style window-energy normalisation). It needs **tract 0.23** (tract 0.21.4 fails on its `Pad`/`DFT` ops) while libDF needs **0.21.4**; both coexist in `qm-dsp` via a renamed dependency (`tract-onnx-new`). Algorithmic delay = 1024 − hop (T/B/S 10.7 ms, M 14.7 ms, L 17.2 ms), verified by cross-correlation. Hops are 6.7-10.7 ms, so a re-framing adapter to the 10 ms capture period is required (adds up to one hop of buffering).
+
+SI-SDR gain (dB, avg over SNR −5…10) and cost:
+
+| model | rain | steel* | bark | horn | far yell* | all-at-once* | core % | p99 per hop |
+|---|---|---|---|---|---|---|---|---|
+| DFN3-LL | +9.5 | +11.1 | +11.4 | +12.7 | +1.4 | +10.8 | 17.0 | 1.9 ms / 10 ms |
+| FE-T | +7.7 | +7.0 | +5.9 | +6.6 | +1.9 | +5.9 | 1.5 | 0.2 ms |
+| FE-B | +8.7 | +9.4 | +9.5 | +9.8 | +3.0 | +6.6 | 3.7 | 0.4 ms |
+| FE-S | +9.2 | +10.0 | +9.4 | +11.0 | +4.5 | +7.1 | 5.3 | 0.6 ms |
+| FE-M | +9.1 | +11.3 | +12.6 | +11.5 | +6.2 | +9.0 | 19.2 | 1.4 ms / 6.7 ms |
+| FE-L | +9.7 | +11.5 | +13.3 | +11.7 | +7.4 | +8.9 | 69.2 | 3.1 ms / 4.2 ms (**74 overruns**) |
+
+*synthetic noise. Full tables: `results/RESULTS.md`.
+
+Takeaways:
+- **FE-S matches DFN3 (standard) quality at ~half its CPU, at 10.7 ms delay**, and FE-B/T give a usable tier for weak PCs. **FE-M ≈ DFN3-LL quality at the same CPU**, but its 6.7 ms hop leaves little headroom. **FE-L is not real-time safe** (4.2 ms hop, 69% of a core, overruns): exclude.
+- **FastEnhancer is clearly better than DFN3 at suppressing the distant-yelling stand-in** (+4.5 to +7.4 dB vs +1.4 to +1.8 dB; STOI also improves). Caveat: the yelling is TTS, not a real shouting man. Worth validating on real recordings and Krisp's background-voice dataset.
+- **FastEnhancer outputs exact digital silence between words** (pause suppression saturates at ≥120 dB). That is aggressive gating: it may sound "dead" and could clip soft word onsets. Needs listening checks and a measure of primary-voice damage before choosing it.
+- DFN3-LL still wins on dog barks, car horns and the combined case; FE-M/L are close to it or ahead on barks.
+- Tier ladder draft for §15 on the M1 numbers: Max = DFN3-LL (or FE-M), High = FE-S, Balanced = FE-B, Lite = FE-T, Emergency = RNNoise. Final tier assignment waits for the i5 measurements.
