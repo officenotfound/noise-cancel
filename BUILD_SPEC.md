@@ -327,3 +327,13 @@ Full tables: `results/RESULTS.md`. Reproduce: `scripts/fetch_models.sh`, `script
 - Measured SNR of the synthetic-noise sets can be ~2 dB off nominal (rain_steel, worst_case). The table averages are still comparable between models.
 - The "pause suppression" metric is `n/a` for dog barks because barks rarely fall into speech pauses.
 - ESC-50 clips are CC BY-NC 3.0 and LibriSpeech is CC BY 4.0: fine for personal benchmarking, do not redistribute `testdata/`.
+
+---
+
+## 14. Research findings that change the plan (see `docs/RESEARCH.md` for sources and confidence)
+
+- **No architectural secret exists** in Krisp/Zoom/Apple as far as public sources show; quality comes from training-data scale, training targets and engineering. Their weights are not public and must not be reverse-engineered.
+- **CPU mitigations to try (in order) if the i5 measurement is poor:** (1) FastEnhancer-M/B 48 kHz (MIT) as a lighter default; (2) an int8 runtime (faster-enhancer.c showed 3.3× at ~no quality loss); (3) Zoom-patent style cascade: cheap detector first, heavy model only when the signal is noisy.
+- **Unwanted voices:** keep the level/distance gate (§5.3.4) as step one. Real fixes are an enrolled-voice model (Personalized-PercepNet style, 4.7% of an 8th-gen i7 core, but no public code) or fine-tuning a denoiser to ignore far/other voices. voxlock (Apache-2.0) proves the recipe but is far too heavy (27 M params) for the target CPU.
+- **Evaluation data:** add Krisp's CC BY-NC 4.0 VoiceIsolation benchmark (real background-voice recordings) to the test set for personal evaluation; measure *primary-voice damage* as well as leakage.
+- **Real noise recordings from the owner** are the highest-value input for both testing and any fine-tuning.
