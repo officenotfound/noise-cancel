@@ -1,0 +1,12 @@
+/target
+/models/*
+!/models/.gitkeep
+/testdata/*
+!/testdata/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+/results/audio*/
+/results/listen*/
+/bench-pack/
+/bench-pack.zip
