@@ -5,7 +5,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Id, Order, Pos2, Rect, Respons
 
 use super::theme::*;
 
-pub const FONT_SIZE: f32 = 12.0;
+pub const FONT_SIZE: f32 = 16.0;
 
 pub fn font() -> FontId {
     FontId::proportional(FONT_SIZE)

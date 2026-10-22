@@ -21,7 +21,7 @@ impl DemoBackend {
         };
         let snap = Snapshot {
             phase,
-            headline: "ON | dfn3-ll | est. delay 41 ms | CPU 14%".into(),
+            headline: "ON - dfn3-ll - est. delay 41 ms - CPU 14%".into(),
             detail: "Headset Microphone -> CABLE Input (VB-Audio Virtual Cable)".into(),
             model: "dfn3-ll".into(),
             est_delay_ms: 41.0,
@@ -47,7 +47,7 @@ impl DemoBackend {
         let mut d = Self { t0: Instant::now(), snap };
         if phase == Phase::Error {
             d.snap.headline = "Not running: VB-Audio Virtual Cable is not installed".into();
-            d.snap.detail = "Install it (Tools > Get VB-Cable), then pick CABLE Output as the microphone in your calls.".into();
+            d.snap.detail = "Install VB-Cable, then choose CABLE Output as your microphone.".into();
             d.snap.model.clear();
             d.snap.output_name.clear();
             d.snap.cpu_pct = 0.0;
@@ -89,7 +89,7 @@ impl Backend for DemoBackend {
             UiCmd::SetBypass(b) => {
                 self.snap.bypass = b;
                 self.snap.phase = if b { Phase::Bypass } else { Phase::Running };
-                self.snap.headline = if b { "BYPASS: microphone passes through unprocessed".into() } else { "ON | dfn3-ll | est. delay 41 ms | CPU 14%".into() };
+                self.snap.headline = if b { "BYPASS: microphone passes through unprocessed".into() } else { "ON - dfn3-ll - est. delay 41 ms - CPU 14%".into() };
             }
             UiCmd::SetGuard(g) => self.snap.guard = g,
             UiCmd::SetAutostart(a) => self.snap.autostart = a,

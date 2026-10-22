@@ -11,7 +11,7 @@ use super::widgets::*;
 /// Builds the backend once the window exists (the tray icon needs the running event loop and the egui context).
 pub type BackendFactory = Box<dyn FnOnce(&egui::Context) -> Box<dyn Backend>>;
 
-pub const WINDOW_SIZE: [f32; 2] = [620.0, 480.0];
+pub const WINDOW_SIZE: [f32; 2] = [620.0, 500.0];
 
 #[derive(Default)]
 pub struct WindowOptions {
@@ -33,6 +33,24 @@ struct RetroApp {
     quitting: bool,
 }
 
+/// Pixel Operator (CC0): a proportional bitmap-style font close to the classic Windows UI face. Native size is 16 px.
+fn install_font(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "pixel_operator".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../../assets/fonts/PixelOperator.ttf"))),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts.families.entry(family).or_default().insert(0, "pixel_operator".to_owned());
+    }
+    ctx.set_fonts(fonts);
+}
+
+/// "CABLE Input (VB-Audio Virtual Cable)" -> "CABLE Input" so it fits the small field.
+fn short_name(name: &str) -> String {
+    name.split(" (").next().unwrap_or(name).to_string()
+}
+
 fn level_frac(level: f32) -> (f32, String) {
     let db = 20.0 * level.max(1e-5).log10();
     let text = if db < -80.0 { "  -- dB".to_string() } else { format!("{db:>5.0} dB") };
@@ -42,6 +60,7 @@ fn level_frac(level: f32) -> (f32, String) {
 impl RetroApp {
     fn new(cc: &eframe::CreationContext<'_>, make: BackendFactory, opts: &WindowOptions) -> Self {
         let mut backend = make(&cc.egui_ctx);
+        install_font(&cc.egui_ctx);
         let mut style = (*cc.egui_ctx.global_style()).clone();
         style.spacing.item_spacing = Vec2::new(6.0, 4.0);
         style.visuals.override_text_color = Some(DARK);
@@ -153,7 +172,7 @@ impl RetroApp {
                     ("Model", if self.snap.model.is_empty() { "-".into() } else { self.snap.model.clone() }),
                     ("Delay", if self.snap.est_delay_ms > 0.0 { format!("about {:.0} ms", self.snap.est_delay_ms) } else { "-".into() }),
                     ("Dropouts", self.snap.dropouts.to_string()),
-                    ("Output", if self.snap.output_name.is_empty() { "-".into() } else { self.snap.output_name.clone() }),
+                    ("Output", if self.snap.output_name.is_empty() { "-".into() } else { short_name(&self.snap.output_name) }),
                 ];
                 for (k, v) in rows {
                     ui.horizontal(|ui| {
@@ -218,7 +237,7 @@ impl RetroApp {
         if let Some(h) = hover_help {
             self.help = h;
         } else {
-            self.help = if self.snap.vb_cable_found || self.snap.phase != Phase::Error { "Ready".into() } else { "Install VB-Cable, then pick CABLE Output as the microphone in your calls.".into() };
+            self.help = if self.snap.vb_cable_found || self.snap.phase != Phase::Error { "Ready".into() } else { "Install VB-Cable, then pick CABLE Output.".into() };
         }
     }
 

@@ -178,7 +178,7 @@ fn refresh_status(app: &App, session: &Session) {
     let period_ms = st.capture_period_frames as f64 * 1000.0 / 48_000.0;
     // model + capture period + ring target + render period (approximate end-to-end figure)
     let est_ms = en.delay_ms + period_ms + DEFAULT_TARGET_FILL as f64 * 1000.0 / 48_000.0 + period_ms;
-    let detail = format!("{} -> {} | dropouts {}", st.input_name, st.output_name, st.underruns + st.overflows);
+    let detail = format!("{} -> {} - dropouts {}", st.input_name, st.output_name, st.underruns + st.overflows);
     *app.live.lock().unwrap() = Live {
         model: en.model.to_string(),
         est_delay_ms: est_ms as f32,
@@ -196,7 +196,7 @@ fn refresh_status(app: &App, session: &Session) {
     } else {
         app.set_status(
             Phase::Running,
-            format!("ON | {} | est. delay {:.0} ms | CPU {:.0}%", en.model, est_ms, en.load * 100.0),
+            format!("ON - {} - est. delay {:.0} ms - CPU {:.0}%", en.model, est_ms, en.load * 100.0),
             detail,
         );
     }
@@ -229,7 +229,7 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
                         log(format!("start failed: {msg}"));
                         last_error_logged = msg.clone();
                     }
-                    app.set_status(Phase::Error, format!("Not running: {msg}"), "Install it (Get VB-Cable), then pick CABLE Output as the microphone in your calls. Retrying every few seconds.");
+                    app.set_status(Phase::Error, format!("Not running: {msg}"), "Install VB-Cable, then choose CABLE Output as your microphone.");
                     need_start = true;
                     retry_at = Some(Instant::now() + Duration::from_secs(3));
                 }
