@@ -28,6 +28,8 @@ pub fn run() {
     let dir = data_dir();
     let _ = std::fs::create_dir_all(&dir);
     logging::init(&dir);
+    // The app has no console; make sure a crash leaves a trace in the log file.
+    std::panic::set_hook(Box::new(|info| logging::log(format!("PANIC: {info}"))));
     logging::log(format!("QuietMic {} starting; args {:?}", env!("CARGO_PKG_VERSION"), &args[1..]));
 
     if args.iter().any(|a| a == "--selftest") {
