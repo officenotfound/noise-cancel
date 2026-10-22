@@ -24,8 +24,10 @@ fn main() {
     let out = Path::new(&std::env::var("OUT_DIR").unwrap()).join("payload.zip");
     let mut zw = zip::ZipWriter::new(std::fs::File::create(&out).unwrap());
     if let Some(dir) = std::env::var_os("QM_PAYLOAD_DIR") {
-        let dir = Path::new(&dir);
-        add(&mut zw, dir, dir);
+        // relative paths are taken from the workspace root, not from this crate's folder
+        let root = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+        let dir = root.join(dir);
+        add(&mut zw, &dir, &dir);
     }
     zw.finish().unwrap();
 }
