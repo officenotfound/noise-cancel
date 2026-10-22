@@ -3,8 +3,13 @@
 //! exists on Windows.
 
 pub mod drift;
+pub mod player_core;
 
 #[cfg(windows)]
+mod player;
+#[cfg(windows)]
 mod session;
+#[cfg(windows)]
+pub use player::Player;
 #[cfg(windows)]
 pub use session::*;

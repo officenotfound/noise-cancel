@@ -4,14 +4,14 @@ use std::time::Duration;
 use eframe::egui::{self, Align2, Layout, Pos2, Rect, Sense, Vec2};
 use qm_engine::Preset;
 
-use super::model::{preset_info, Backend, Phase, Snapshot, UiCmd, WindowCmd};
+use super::model::{preset_info, Backend, Phase, PlayState, Snapshot, UiCmd, WindowCmd};
 use super::theme::*;
 use super::widgets::*;
 
 /// Builds the backend once the window exists (the tray icon needs the running event loop and the egui context).
 pub type BackendFactory = Box<dyn FnOnce(&egui::Context) -> Box<dyn Backend>>;
 
-pub const WINDOW_SIZE: [f32; 2] = [620.0, 500.0];
+pub const WINDOW_SIZE: [f32; 2] = [392.0, 724.0];
 
 #[derive(Default)]
 pub struct WindowOptions {
@@ -44,6 +44,11 @@ fn install_font(ctx: &egui::Context) {
         fonts.families.entry(family).or_default().insert(0, "pixel_operator".to_owned());
     }
     ctx.set_fonts(fonts);
+}
+
+fn mmss(secs: f32) -> String {
+    let s = secs.max(0.0) as u32;
+    format!("{}:{:02}", s / 60, s % 60)
 }
 
 /// "CABLE Input (VB-Audio Virtual Cable)" -> "CABLE Input" so it fits the small field.
@@ -133,107 +138,139 @@ impl RetroApp {
 
     fn body(&mut self, ui: &mut egui::Ui) {
         let mut hover_help: Option<String> = None;
-        ui.columns(2, |cols| {
-            // ---------------- left column
-            let ui = &mut cols[0];
-            group_box(ui, "Status", |ui| {
-                let (text, color, on) = self.phase_text();
-                ui.horizontal(|ui| {
-                    led(ui, color, on);
-                    label(ui, text);
-                });
-                paragraph(ui, &self.snap.headline, DARK);
-                if !self.snap.detail.is_empty() {
-                    paragraph(ui, &self.snap.detail, egui::Color32::from_rgb(64, 64, 64));
-                }
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    if button(ui, "Bypass", true, self.snap.bypass, 90.0).clicked() {
-                        self.cmd(UiCmd::SetBypass(!self.snap.bypass));
-                    }
-                    let (txt, c) = if self.snap.has_tray { ("Hide to tray", UiCmd::HideToTray) } else { ("Quit", UiCmd::Quit) };
-                    if button(ui, txt, true, false, 90.0).clicked() {
-                        self.cmd(c);
-                    }
-                });
-            });
-            group_box(ui, "Levels", |ui| {
-                for (name, lvl) in [("Mic", self.snap.input_level), ("Out", self.snap.output_level)] {
-                    let (f, txt) = level_frac(lvl);
-                    ui.horizontal(|ui| {
-                        label_w(ui, name, 34.0);
-                        meter(ui, f, 150.0);
-                        label(ui, &txt);
-                    });
-                }
-            });
-            group_box(ui, "Performance", |ui| {
-                let rows: [(&str, String); 4] = [
-                    ("Model", if self.snap.model.is_empty() { "-".into() } else { self.snap.model.clone() }),
-                    ("Delay", if self.snap.est_delay_ms > 0.0 { format!("about {:.0} ms", self.snap.est_delay_ms) } else { "-".into() }),
-                    ("Dropouts", self.snap.dropouts.to_string()),
-                    ("Output", if self.snap.output_name.is_empty() { "-".into() } else { short_name(&self.snap.output_name) }),
-                ];
-                for (k, v) in rows {
-                    ui.horizontal(|ui| {
-                        label_w(ui, k, 62.0);
-                        value_field(ui, &v, ui.available_width());
-                    });
-                }
-                ui.horizontal(|ui| {
-                    label_w(ui, "CPU", 62.0);
-                    meter(ui, (self.snap.cpu_pct / 100.0).clamp(0.0, 1.0), 130.0);
-                    label(ui, &format!("{:.0}%", self.snap.cpu_pct));
-                });
-            });
 
-            // ---------------- right column
-            let ui = &mut cols[1];
-            group_box(ui, "Preset", |ui| {
-                for p in Preset::ALL {
-                    let (name, help) = preset_info(p);
-                    let r = radio(ui, self.snap.preset == p, name);
-                    if r.hovered() {
-                        hover_help = Some(help.to_owned());
-                    }
-                    if r.clicked() {
-                        self.cmd(UiCmd::SetPreset(p));
-                    }
-                }
-                ui.add_space(4.0);
-                let r = checkbox(ui, self.snap.guard, "Extra noise guard (+13 ms)", true);
+        group_box(ui, "Status", |ui| {
+            let (text, color, on) = self.phase_text();
+            ui.horizontal(|ui| {
+                led(ui, color, on);
+                label(ui, text);
+            });
+            paragraph(ui, &self.snap.headline, DARK);
+            if !self.snap.detail.is_empty() {
+                paragraph(ui, &self.snap.detail, egui::Color32::from_rgb(64, 64, 64));
+            }
+            ui.add_space(2.0);
+            for (name, lvl) in [("Mic", self.snap.input_level), ("Out", self.snap.output_level)] {
+                let (f, txt) = level_frac(lvl);
+                ui.horizontal(|ui| {
+                    label_w(ui, name, 34.0);
+                    meter(ui, f, ui.available_width() - 74.0);
+                    label(ui, &txt);
+                });
+            }
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
+                let r = button(ui, "Bypass", true, self.snap.bypass, w);
                 if r.hovered() {
-                    hover_help = Some("A second small model mutes the output whenever nobody is speaking.".into());
+                    hover_help = Some("Turn noise removal off: your microphone passes through untouched.".into());
                 }
                 if r.clicked() {
-                    self.cmd(UiCmd::SetGuard(!self.snap.guard));
+                    self.cmd(UiCmd::SetBypass(!self.snap.bypass));
                 }
-            });
-            group_box(ui, "Microphone", |ui| {
-                let mut names = vec!["Windows default microphone".to_string()];
-                names.extend(self.snap.mics.iter().filter(|(id, _)| id.is_some()).map(|(_, n)| n.clone()));
-                let idx = self.snap.mics.iter().position(|(id, _)| *id == self.snap.selected_mic).unwrap_or(0);
-                let shown = names.get(idx).cloned().unwrap_or_default();
-                if let Some(i) = combo(ui, "mic_combo", ui.available_width(), &shown, &names, idx) {
-                    if let Some((id, _)) = self.snap.mics.get(i) {
-                        self.cmd(UiCmd::SetInput(id.clone()));
-                    }
-                }
-            });
-            group_box(ui, "Tools", |ui| {
-                let w = ui.available_width();
-                for (txt, c) in [
-                    ("Re-measure this PC", UiCmd::Recalibrate),
-                    ("Performance report...", UiCmd::OpenReport),
-                    ("Open log...", UiCmd::OpenLog),
-                    ("Get VB-Cable...", UiCmd::OpenVbCable),
-                ] {
-                    if button(ui, txt, true, false, w).clicked() {
-                        self.cmd(c);
-                    }
+                let (txt, c) = if self.snap.has_tray { ("To tray", UiCmd::HideToTray) } else { ("Quit", UiCmd::Quit) };
+                if button(ui, txt, true, false, w).clicked() {
+                    self.cmd(c);
                 }
             });
         });
+
+        group_box(ui, "Preset", |ui| {
+            for p in Preset::ALL {
+                let (name, help) = preset_info(p);
+                let r = radio(ui, self.snap.preset == p, name);
+                if r.hovered() {
+                    hover_help = Some(help.to_owned());
+                }
+                if r.clicked() {
+                    self.cmd(UiCmd::SetPreset(p));
+                }
+            }
+            ui.add_space(4.0);
+            let r = checkbox(ui, self.snap.guard, "Extra noise guard (+13 ms)", true);
+            if r.hovered() {
+                hover_help = Some("A second small model mutes the output whenever nobody is speaking.".into());
+            }
+            if r.clicked() {
+                self.cmd(UiCmd::SetGuard(!self.snap.guard));
+            }
+        });
+
+        group_box(ui, "Microphone", |ui| {
+            let mut names = vec!["Windows default microphone".to_string()];
+            names.extend(self.snap.mics.iter().filter(|(id, _)| id.is_some()).map(|(_, n)| n.clone()));
+            let idx = self.snap.mics.iter().position(|(id, _)| *id == self.snap.selected_mic).unwrap_or(0);
+            let shown = names.get(idx).cloned().unwrap_or_default();
+            if let Some(i) = combo(ui, "mic_combo", ui.available_width(), &shown, &names, idx) {
+                if let Some((id, _)) = self.snap.mics.get(i) {
+                    self.cmd(UiCmd::SetInput(id.clone()));
+                }
+            }
+        });
+
+        group_box(ui, "Performance", |ui| {
+            let rows: [(&str, String); 3] = [
+                ("Model", if self.snap.model.is_empty() { "-".into() } else { self.snap.model.clone() }),
+                ("Delay", if self.snap.est_delay_ms > 0.0 { format!("about {:.0} ms", self.snap.est_delay_ms) } else { "-".into() }),
+                ("Output", if self.snap.output_name.is_empty() { "-".into() } else { short_name(&self.snap.output_name) }),
+            ];
+            for (k, v) in rows {
+                ui.horizontal(|ui| {
+                    label_w(ui, k, 62.0);
+                    value_field(ui, &v, ui.available_width());
+                });
+            }
+            ui.horizontal(|ui| {
+                label_w(ui, "CPU", 62.0);
+                meter(ui, (self.snap.cpu_pct / 100.0).clamp(0.0, 1.0), ui.available_width() - 100.0);
+                label(ui, &format!("{:.0}%", self.snap.cpu_pct));
+            });
+        });
+
+        group_box(ui, "Test recorder", |ui| {
+            let rec = self.snap.rec;
+            let blink = (ui.input(|i| i.time) * 2.0) as i64 % 2 == 0;
+            ui.horizontal(|ui| {
+                let r = record_button(ui, rec.recording, blink);
+                if r.hovered() {
+                    hover_help = Some("Record your microphone with the noise on. Press again to stop. A new recording replaces the old one.".into());
+                }
+                if r.clicked() {
+                    self.cmd(UiCmd::RecordToggle);
+                }
+                let can_play = rec.has_recording && !rec.recording;
+                let r = play_button(ui, rec.play == PlayState::Playing, can_play);
+                if r.hovered() {
+                    hover_help = Some("Play the recording back through your speakers or headphones.".into());
+                }
+                if r.clicked() && can_play {
+                    self.cmd(UiCmd::PlayToggle);
+                }
+                let (text, color) = if rec.recording {
+                    (format!("REC {}", mmss(rec.rec_secs)), egui::Color32::from_rgb(160, 0, 0))
+                } else if rec.has_recording {
+                    (format!("{} / {}", mmss(rec.play_secs), mmss(rec.total_secs)), DARK)
+                } else {
+                    ("no recording yet".to_string(), egui::Color32::from_rgb(64, 64, 64))
+                };
+                let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), Sense::hover());
+                ui.painter().text(rect.left_center() + Vec2::new(6.0, 0.0), Align2::LEFT_CENTER, text, font(), color);
+            });
+            ui.horizontal(|ui| {
+                label_w(ui, "Play", 40.0);
+                for (txt, original, help) in [("Cleaned", false, "What other people hear: after noise removal."), ("Original", true, "Your microphone as it came in, for comparison.")] {
+                    let r = radio(ui, rec.play_original == original, txt);
+                    if r.hovered() {
+                        hover_help = Some(help.into());
+                    }
+                    if r.clicked() {
+                        self.cmd(UiCmd::SetPlayOriginal(original));
+                    }
+                    ui.add_space(8.0);
+                }
+            });
+        });
+
         if let Some(h) = hover_help {
             self.help = h;
         } else {
@@ -319,10 +356,9 @@ impl eframe::App for RetroApp {
         let bar = Rect::from_min_max(Pos2::new(inner.min.x + 4.0, inner.max.y - 24.0), Pos2::new(inner.max.x - 4.0, inner.max.y - 3.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(Layout::left_to_right(egui::Align::Center)), |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
-            let rest = bar.width() - 2.0 * 118.0 - 4.0;
+            let rest = bar.width() - 100.0;
             status_cell(ui, rest, &self.help);
-            status_cell(ui, 116.0, &format!("Delay ~{:.0} ms", self.snap.est_delay_ms));
-            status_cell(ui, 116.0, &format!("CPU {:.0}%", self.snap.cpu_pct));
+            status_cell(ui, 98.0, &format!("~{:.0} ms", self.snap.est_delay_ms));
         });
 
         if self.about {

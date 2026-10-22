@@ -5,6 +5,8 @@ use anyhow::Result;
 use qm_engine::Engine;
 use qm_win::Processor;
 
+use crate::recorder::Recorder;
+
 /// Live engine numbers the supervisor shows in the tray.
 #[derive(Clone, Debug, Default)]
 pub struct EngineStatus {
@@ -18,12 +20,13 @@ pub struct EngineProcessor {
     engine: Engine,
     bypass: Arc<AtomicBool>,
     status: Arc<Mutex<EngineStatus>>,
+    recorder: Arc<Recorder>,
     calls: u32,
 }
 
 impl EngineProcessor {
-    pub fn new(engine: Engine, bypass: Arc<AtomicBool>, status: Arc<Mutex<EngineStatus>>) -> Self {
-        let mut p = Self { engine, bypass, status, calls: 0 };
+    pub fn new(engine: Engine, bypass: Arc<AtomicBool>, status: Arc<Mutex<EngineStatus>>, recorder: Arc<Recorder>) -> Self {
+        let mut p = Self { engine, bypass, status, recorder, calls: 0 };
         p.publish();
         p
     }
@@ -47,6 +50,7 @@ impl Processor for EngineProcessor {
         } else {
             self.engine.process(input, output)?;
         }
+        self.recorder.push(input, output);
         self.calls = self.calls.wrapping_add(1);
         if self.calls % 25 == 0 {
             self.publish();

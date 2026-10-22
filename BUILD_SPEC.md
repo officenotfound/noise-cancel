@@ -478,3 +478,9 @@ DPDFNet gives the best noise removal on rain, barks and distant voices but costs
 - Level meters come from per-block peaks measured in the capture thread (`qm-win::Stats::{input_peak, output_peak}`), shown on a -60..0 dB scale with peak-hold decay.
 - Font: **Pixel Operator** (CC0, `assets/fonts/PixelOperator.ttf`, provenance and licence in `assets/fonts/README.md`), embedded in the exe, used at its native 16 px so it stays crisp. The long status messages were shortened because this font is wider than the modern one.
 - Not verified on Windows yet: window creation under OpenGL on real hardware, tray interplay with the egui event loop (tray created inside the app-creator callback; clicks wake the loop through `Context::request_repaint`), hidden-window start.
+
+## 22. Portrait window and test recorder (Oct 22 2026)
+
+- **Shape:** the owner wants a tall, narrow window (portrait), not wide and not square: 392 x 724, one column (Status with level meters, Preset, Microphone, Performance, Test recorder, status bar).
+- **Test recorder** (`recorder.rs`, `qm-win::player_core` / `Player`): a red record circle and a play/pause button record the microphone *before and after* processing (the two takes are time-aligned, 60 s cap). "Play: Cleaned / Original" switches between what other people hear and the raw microphone, keeping the playback position. Playback goes to the default speakers/headphones, never the virtual cable. Exactly one take exists: starting a new recording deletes the old take and its two WAV files (`last_recording_original.wav`, `last_recording_cleaned.wav` in the data folder), so the user never manages files. Unit-tested: `recorder::tests`, `player_core::tests`.
+- The Tools buttons (measure, report, log, cable) live only in the menus now.

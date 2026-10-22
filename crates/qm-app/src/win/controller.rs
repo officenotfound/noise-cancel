@@ -16,6 +16,7 @@ use qm_win::{Processor, Session, SessionConfig, DEFAULT_TARGET_FILL};
 use super::logging::log;
 use super::models_dir;
 use super::processor::{EngineProcessor, EngineStatus};
+use crate::recorder::Recorder;
 use crate::report;
 use crate::settings::Settings;
 
@@ -56,6 +57,7 @@ pub struct Controller {
     pub status: Arc<Mutex<Status>>,
     pub settings: Arc<Mutex<Settings>>,
     pub live: Arc<Mutex<Live>>,
+    pub recorder: Arc<Recorder>,
     handle: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -64,6 +66,7 @@ struct App {
     settings: Arc<Mutex<Settings>>,
     status: Arc<Mutex<Status>>,
     live: Arc<Mutex<Live>>,
+    recorder: Arc<Recorder>,
     engine_status: Arc<Mutex<EngineStatus>>,
     bypass: Arc<AtomicBool>,
     output_override: Option<String>,
@@ -90,13 +93,14 @@ impl Controller {
             settings: Arc::new(Mutex::new(settings)),
             status: Arc::new(Mutex::new(Status { phase: Phase::Starting, headline: "Starting...".into(), detail: String::new() })),
             live: Arc::new(Mutex::new(Live::default())),
+            recorder: Recorder::new(),
             engine_status: Arc::new(Mutex::new(EngineStatus::default())),
             bypass,
             output_override,
         };
-        let (status, settings, live) = (app.status.clone(), app.settings.clone(), app.live.clone());
+        let (status, settings, live, recorder) = (app.status.clone(), app.settings.clone(), app.live.clone(), app.recorder.clone());
         let handle = std::thread::Builder::new().name("qm-supervisor".into()).spawn(move || run(app, rx)).ok();
-        Controller { tx, status, settings, live, handle: Mutex::new(handle) }
+        Controller { tx, status, settings, live, recorder, handle: Mutex::new(handle) }
     }
 
     pub fn send(&self, c: Cmd) {
@@ -163,11 +167,11 @@ fn start_session(app: &App) -> Result<Session> {
     let output_id = find_output(app)?;
     log(format!("starting session: preset {} model {} input {:?} output {:?}", preset.name(), model.name(), input_id, output_id));
 
-    let (bypass, status) = (app.bypass.clone(), app.engine_status.clone());
+    let (bypass, status, recorder) = (app.bypass.clone(), app.engine_status.clone(), app.recorder.clone());
     let models = models_dir();
     let factory: qm_win::ProcessorFactory = Box::new(move || {
         let engine = Engine::new(cfg, models, Some(model))?;
-        Ok(Box::new(EngineProcessor::new(engine, bypass, status)) as Box<dyn Processor>)
+        Ok(Box::new(EngineProcessor::new(engine, bypass, status, recorder)) as Box<dyn Processor>)
     });
     Session::start(SessionConfig { input_id, output_id, target_fill: DEFAULT_TARGET_FILL }, factory)
 }

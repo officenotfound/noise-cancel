@@ -4,11 +4,13 @@ use std::time::Instant;
 
 use qm_engine::Preset;
 
-use super::model::{Backend, Phase, Snapshot, UiCmd};
+use super::model::{Backend, Phase, PlayState, RecState, Snapshot, UiCmd};
 
 pub struct DemoBackend {
     t0: Instant,
     snap: Snapshot,
+    rec_started: Option<Instant>,
+    play_started: Option<(Instant, f32)>,
 }
 
 impl DemoBackend {
@@ -22,7 +24,7 @@ impl DemoBackend {
         let snap = Snapshot {
             phase,
             headline: "ON - dfn3-ll - est. delay 41 ms - CPU 14%".into(),
-            detail: "Headset Microphone -> CABLE Input (VB-Audio Virtual Cable)".into(),
+            detail: "Headset Microphone -> CABLE Input - dropouts 0".into(),
             model: "dfn3-ll".into(),
             est_delay_ms: 41.0,
             cpu_pct: 14.0,
@@ -43,8 +45,19 @@ impl DemoBackend {
             selected_mic: None,
             vb_cable_found: phase != Phase::Error,
             has_tray: false,
+            rec: RecState::default(),
         };
-        let mut d = Self { t0: Instant::now(), snap };
+        let mut d = Self { t0: Instant::now(), snap, rec_started: None, play_started: None };
+        match state {
+            "recording" => d.rec_started = Some(Instant::now()),
+            "recorded" | "playing" => {
+                d.snap.rec = RecState { has_recording: true, total_secs: 12.0, play_secs: 4.0, ..Default::default() };
+                if state == "playing" {
+                    d.snap.rec.play = PlayState::Playing;
+                }
+            }
+            _ => {}
+        }
         if phase == Phase::Error {
             d.snap.headline = "Not running: VB-Audio Virtual Cable is not installed".into();
             d.snap.detail = "Install VB-Cable, then choose CABLE Output as your microphone.".into();
@@ -79,6 +92,16 @@ impl Backend for DemoBackend {
             s.input_level = 0.0;
             s.output_level = 0.0;
         }
+        if let Some(t) = self.rec_started {
+            s.rec.recording = true;
+            s.rec.rec_secs = if self.snap.rec.total_secs > 0.0 && false { 0.0 } else { t.elapsed().as_secs_f32() + 7.0 };
+        }
+        if s.rec.play == PlayState::Playing {
+            s.rec.play_secs = match self.play_started {
+                Some((t, from)) => (from + t.elapsed().as_secs_f32()).min(s.rec.total_secs),
+                None => s.rec.play_secs,
+            };
+        }
         s
     }
 
@@ -93,6 +116,30 @@ impl Backend for DemoBackend {
             }
             UiCmd::SetGuard(g) => self.snap.guard = g,
             UiCmd::SetAutostart(a) => self.snap.autostart = a,
+            UiCmd::RecordToggle => {
+                if let Some(t) = self.rec_started.take() {
+                    self.snap.rec = RecState { has_recording: true, total_secs: t.elapsed().as_secs_f32(), play_original: self.snap.rec.play_original, ..Default::default() };
+                } else {
+                    self.snap.rec = RecState { play_original: self.snap.rec.play_original, ..Default::default() };
+                    self.rec_started = Some(Instant::now());
+                }
+            }
+            UiCmd::PlayToggle => match self.snap.rec.play {
+                PlayState::Playing => {
+                    self.snap.rec.play = PlayState::Paused;
+                    if let Some((t, from)) = self.play_started.take() {
+                        self.snap.rec.play_secs = (from + t.elapsed().as_secs_f32()).min(self.snap.rec.total_secs);
+                    }
+                }
+                _ => {
+                    self.snap.rec.play = PlayState::Playing;
+                    if self.snap.rec.play_secs >= self.snap.rec.total_secs {
+                        self.snap.rec.play_secs = 0.0;
+                    }
+                    self.play_started = Some((Instant::now(), self.snap.rec.play_secs));
+                }
+            },
+            UiCmd::SetPlayOriginal(o) => self.snap.rec.play_original = o,
             UiCmd::Quit => std::process::exit(0),
             _ => {}
         }

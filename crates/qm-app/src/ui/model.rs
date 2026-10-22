@@ -11,6 +11,28 @@ pub enum Phase {
     Error,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PlayState {
+    #[default]
+    Stopped,
+    Playing,
+    Paused,
+}
+
+/// State of the in-app test recorder.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RecState {
+    pub recording: bool,
+    pub has_recording: bool,
+    pub play: PlayState,
+    /// Seconds recorded so far / total length of the take / current playback position.
+    pub rec_secs: f32,
+    pub total_secs: f32,
+    pub play_secs: f32,
+    /// Play the original (unprocessed) take instead of the cleaned one.
+    pub play_original: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub phase: Phase,
@@ -35,6 +57,7 @@ pub struct Snapshot {
     pub vb_cable_found: bool,
     /// True when closing the window should hide it to the tray instead of quitting.
     pub has_tray: bool,
+    pub rec: RecState,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +73,9 @@ pub enum UiCmd {
     OpenLog,
     OpenVbCable,
     HideToTray,
+    RecordToggle,
+    PlayToggle,
+    SetPlayOriginal(bool),
     Quit,
 }
 

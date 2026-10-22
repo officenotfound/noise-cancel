@@ -73,7 +73,7 @@ pub fn find_vb_cable() -> Result<Option<DeviceInfo>> {
 }
 
 /// Raise the calling thread to the "Pro Audio" MMCSS class (best effort).
-fn pro_audio_priority() {
+pub(crate) fn pro_audio_priority() {
     let mut idx = 0u32;
     unsafe {
         let _ = AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut idx);
@@ -204,7 +204,7 @@ impl Drop for Session {
     }
 }
 
-fn mono_f32_format() -> WaveFormat {
+pub(crate) fn mono_f32_format() -> WaveFormat {
     WaveFormat::new(32, 32, &SampleType::Float, SAMPLE_RATE, 1, None)
 }
 

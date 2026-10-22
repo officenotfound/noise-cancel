@@ -391,3 +391,36 @@ pub fn paragraph(ui: &mut Ui, text: &str, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(galley.size(), Sense::hover());
     ui.painter().galley(rect.min, galley, color);
 }
+
+/// Square transport button with a bevel; `down` latches it. Returns the response and the icon centre.
+fn transport_button(ui: &mut Ui, enabled: bool, down: bool) -> (Response, Pos2) {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(40.0, 28.0), if enabled { Sense::click() } else { Sense::hover() });
+    let held = enabled && resp.is_pointer_button_down_on();
+    let p = ui.painter();
+    if held || down { pressed(p, rect) } else { raised(p, rect) }
+    (resp, rect.center() + if held || down { Vec2::new(1.0, 1.0) } else { Vec2::ZERO })
+}
+
+/// The classic red record circle. While recording the button stays pressed and the circle blinks.
+pub fn record_button(ui: &mut Ui, recording: bool, blink_on: bool) -> Response {
+    let (resp, c) = transport_button(ui, true, recording);
+    let fill = if recording && !blink_on { Color32::from_rgb(120, 0, 0) } else { Color32::from_rgb(255, 0, 0) };
+    let p = ui.painter();
+    p.circle_filled(c, 7.0, fill);
+    p.circle_stroke(c, 7.0, Stroke::new(1.0, Color32::from_rgb(90, 0, 0)));
+    resp
+}
+
+/// Play triangle, or pause bars while playing.
+pub fn play_button(ui: &mut Ui, playing: bool, enabled: bool) -> Response {
+    let (resp, c) = transport_button(ui, enabled, false);
+    let col = if enabled { DARK } else { SHADOW };
+    let p = ui.painter();
+    if playing {
+        p.rect_filled(Rect::from_center_size(c + Vec2::new(-3.5, 0.0), Vec2::new(4.0, 12.0)), 0.0, col);
+        p.rect_filled(Rect::from_center_size(c + Vec2::new(3.5, 0.0), Vec2::new(4.0, 12.0)), 0.0, col);
+    } else {
+        p.add(egui::Shape::convex_polygon(vec![c + Vec2::new(-4.0, -7.0), c + Vec2::new(-4.0, 7.0), c + Vec2::new(6.0, 0.0)], col, Stroke::NONE));
+    }
+    resp
+}
