@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use qm_engine::governor::{calibrate, pick};
 use qm_engine::{Config, Engine, ModelId, Preset};
-use qm_win::{Processor, Session, SessionConfig, DEFAULT_TARGET_FILL};
+use qm_audio::{Processor, Session, SessionConfig, DEFAULT_TARGET_FILL};
 
 use super::logging::log;
 use super::models_dir;
@@ -70,6 +70,8 @@ struct App {
     engine_status: Arc<Mutex<EngineStatus>>,
     bypass: Arc<AtomicBool>,
     output_override: Option<String>,
+    /// True while running without a virtual cable (capture and process, send nowhere).
+    test_mode: AtomicBool,
 }
 
 impl App {
@@ -97,6 +99,7 @@ impl Controller {
             engine_status: Arc::new(Mutex::new(EngineStatus::default())),
             bypass,
             output_override,
+            test_mode: AtomicBool::new(false),
         };
         let (status, settings, live, recorder) = (app.status.clone(), app.settings.clone(), app.live.clone(), app.recorder.clone());
         let handle = std::thread::Builder::new().name("qm-supervisor".into()).spawn(move || run(app, rx)).ok();
@@ -137,20 +140,22 @@ fn pick_model(app: &App, cfg: &Config, preset: Preset) -> Result<ModelId> {
     Ok(picked)
 }
 
-fn find_output(app: &App) -> Result<Option<String>> {
+/// Returns (output device id, test mode). Test mode = no virtual cable installed: capture and process, send nowhere.
+fn find_output(app: &App) -> Result<(Option<String>, bool)> {
     match app.output_override.as_deref() {
-        Some("default") => Ok(None),
+        Some("default") => Ok((None, false)),
         Some(name) => {
             let want = name.to_lowercase();
-            qm_win::list_outputs()?
+            qm_audio::list_outputs()?
                 .into_iter()
                 .find(|d| d.name.to_lowercase().contains(&want))
-                .map(|d| Some(d.id))
+                .map(|d| (Some(d.id), false))
                 .ok_or_else(|| anyhow!("no output device matching {name:?}"))
         }
-        None => qm_win::find_vb_cable()?
-            .map(|d| Some(d.id))
-            .ok_or_else(|| anyhow!("VB-Audio Virtual Cable is not installed")),
+        None => Ok(match qm_audio::find_virtual_cable()? {
+            Some(d) => (Some(d.id), false),
+            None => (None, true),
+        }),
     }
 }
 
@@ -164,16 +169,17 @@ fn start_session(app: &App) -> Result<Session> {
         cfg.guard = Some(qm_engine::GuardConfig::standard());
     }
     let model = pick_model(app, &cfg, preset)?;
-    let output_id = find_output(app)?;
-    log(format!("starting session: preset {} model {} input {:?} output {:?}", preset.name(), model.name(), input_id, output_id));
+    let (output_id, test_mode) = find_output(app)?;
+    app.test_mode.store(test_mode, Ordering::Relaxed);
+    log(format!("starting session: preset {} model {} input {:?} output {:?} test_mode {}", preset.name(), model.name(), input_id, output_id, test_mode));
 
     let (bypass, status, recorder) = (app.bypass.clone(), app.engine_status.clone(), app.recorder.clone());
     let models = models_dir();
-    let factory: qm_win::ProcessorFactory = Box::new(move || {
+    let factory: qm_audio::ProcessorFactory = Box::new(move || {
         let engine = Engine::new(cfg, models, Some(model))?;
         Ok(Box::new(EngineProcessor::new(engine, bypass, status, recorder)) as Box<dyn Processor>)
     });
-    Session::start(SessionConfig { input_id, output_id, target_fill: DEFAULT_TARGET_FILL }, factory)
+    Session::start(SessionConfig { input_id, output_id, target_fill: DEFAULT_TARGET_FILL, discard_output: test_mode }, factory)
 }
 
 fn refresh_status(app: &App, session: &Session) {
@@ -193,10 +199,13 @@ fn refresh_status(app: &App, session: &Session) {
         input_name: st.input_name.clone(),
         output_name: st.output_name.clone(),
     };
-    if app.bypass.load(Ordering::Relaxed) {
-        app.set_status(Phase::Bypass, "BYPASS: microphone passes through unprocessed", detail);
-    } else if en.model.is_empty() {
+    if en.model.is_empty() {
         app.set_status(Phase::Starting, "Loading model...", detail);
+    } else if app.test_mode.load(Ordering::Relaxed) {
+        let head = format!("TEST MODE: {} is not installed", super::os::CABLE_PRODUCT);
+        app.set_status(Phase::NoCable, head, "Other apps cannot hear you yet. Try the recorder below.");
+    } else if app.bypass.load(Ordering::Relaxed) {
+        app.set_status(Phase::Bypass, "BYPASS: microphone passes through unprocessed", detail);
     } else {
         app.set_status(
             Phase::Running,
@@ -224,7 +233,7 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
             *app.live.lock().unwrap() = Live::default();
             match start_session(&app) {
                 Ok(s) => {
-                    started_default = qm_win::default_input().ok().map(|d| d.id);
+                    started_default = qm_audio::default_input().ok().map(|d| d.id);
                     session = Some(s);
                 }
                 Err(e) => {
@@ -233,7 +242,7 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
                         log(format!("start failed: {msg}"));
                         last_error_logged = msg.clone();
                     }
-                    app.set_status(Phase::Error, format!("Not running: {msg}"), "Install VB-Cable, then choose CABLE Output as your microphone.");
+                    app.set_status(Phase::Error, format!("Not running: {msg}"), &format!("Install {}, then choose {} as your microphone.", super::os::CABLE_PRODUCT, super::os::CABLE_PICK));
                     need_start = true;
                     retry_at = Some(Instant::now() + Duration::from_secs(3));
                 }
@@ -261,7 +270,7 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
             }
             Ok(Cmd::SetAutostart(on)) => {
                 let exe = std::env::current_exe().unwrap_or_default();
-                match super::tray::set_autostart(on, &exe) {
+                match super::os::set_autostart(on, &exe) {
                     Ok(()) => {
                         app.settings.lock().unwrap().autostart = on;
                         app.save_settings();
@@ -292,9 +301,15 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
                 need_start = true;
                 retry_at = Some(Instant::now() + Duration::from_secs(2));
             } else if last_poll.elapsed() >= Duration::from_secs(1) {
+                // Test mode: pick the virtual cable up as soon as it is installed.
+                if app.test_mode.load(Ordering::Relaxed) && app.output_override.is_none() && qm_audio::find_virtual_cable().ok().flatten().is_some() {
+                    log("virtual cable appeared; leaving test mode");
+                    need_start = true;
+                    retry_at = None;
+                }
                 // Following the Windows default microphone: restart when it changes (headset plugged in, etc.).
                 if app.settings.lock().unwrap().input_id.is_none() {
-                    let now = qm_win::default_input().ok().map(|d| d.id);
+                    let now = qm_audio::default_input().ok().map(|d| d.id);
                     if now.is_some() && now != started_default {
                         log(format!("default microphone changed: {started_default:?} -> {now:?}"));
                         need_start = true;

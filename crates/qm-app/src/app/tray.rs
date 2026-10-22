@@ -1,19 +1,14 @@
-//! System tray icon and menu. The tray reports user actions as [`TrayOut`]; the window backend (or the tray-only
-//! fallback loop) applies them. Windows needs a message loop on the creating thread: the main window's event loop
-//! provides it, and `pump_messages` does the same in tray-only mode.
+//! System tray (Windows) / menu bar (macOS) icon and menu. It reports user actions as [`TrayOut`]; the backend
+//! applies them. The creating thread needs an event loop: the main window's loop provides it (on Windows,
+//! `pump_messages` does the same in tray-only mode).
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::mpsc::{self, Receiver};
 
-use anyhow::Result;
 use eframe::egui;
 use qm_engine::Preset;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE, WM_QUIT};
-use winreg::enums::HKEY_CURRENT_USER;
-use winreg::RegKey;
 
 use super::logging::log;
 use crate::ui::model::{preset_info, Phase, Snapshot, UiCmd, WindowCmd};
@@ -32,18 +27,6 @@ pub enum TrayOut {
 enum Input {
     Menu(MenuEvent),
     Icon(TrayIconEvent),
-}
-
-pub fn set_autostart(on: bool, exe: &Path) -> Result<()> {
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let (key, _) = hkcu.create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")?;
-    if on {
-        // Start hidden in the tray; the window opens when the icon is clicked.
-        key.set_value("QuietMic", &format!("\"{}\" --minimized", exe.display()))?;
-    } else {
-        let _ = key.delete_value("QuietMic");
-    }
-    Ok(())
 }
 
 /// 32x32 filled circle with a darker ring.
@@ -136,7 +119,7 @@ impl Tray {
         let guard = CheckMenuItem::new("Extra noise guard (about +13 ms delay)", true, snap.guard, None);
         actions.insert(guard.id().clone(), Action::Cmd(UiCmd::SetGuard(!snap.guard)));
         let _ = menu.append(&guard);
-        let autostart = CheckMenuItem::new("Start with Windows", true, snap.autostart, None);
+        let autostart = CheckMenuItem::new(super::os::AUTOSTART_LABEL, true, snap.autostart, None);
         actions.insert(autostart.id().clone(), Action::Cmd(UiCmd::SetAutostart(!snap.autostart)));
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&autostart);
@@ -149,7 +132,7 @@ impl Tray {
         simple("Re-measure this PC", Action::Cmd(UiCmd::Recalibrate));
         simple("Performance report...", Action::Cmd(UiCmd::OpenReport));
         simple("Open log...", Action::Cmd(UiCmd::OpenLog));
-        simple("Get VB-Cable (virtual microphone)...", Action::Cmd(UiCmd::OpenVbCable));
+        simple(&format!("Get {} (virtual microphone)...", super::os::CABLE_PRODUCT), Action::Cmd(UiCmd::OpenVbCable));
         let _ = menu.append(&PredefinedMenuItem::separator());
         simple("Quit QuietMic", Action::Cmd(UiCmd::Quit));
 
@@ -239,7 +222,7 @@ impl Tray {
                 Phase::Running => (40, 190, 90),
                 Phase::Bypass => (150, 150, 150),
                 Phase::Error => (215, 60, 60),
-                Phase::Starting | Phase::Calibrating => (230, 160, 30),
+                Phase::Starting | Phase::Calibrating | Phase::NoCable => (230, 160, 30),
             };
             let _ = self.icon.set_icon(Some(icon(rgb)));
         }
@@ -269,8 +252,10 @@ impl Tray {
     }
 }
 
-/// Run the Win32 message loop for the tray when no window is available. Returns when the user quits.
+/// Run the Win32 message loop for the tray when no window is available. Returns false when the user quits.
+#[cfg(windows)]
 pub fn pump_messages() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, PeekMessageW, TranslateMessage, MSG, PM_REMOVE, WM_QUIT};
     let mut msg = MSG::default();
     while unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE) }.as_bool() {
         if msg.message == WM_QUIT {

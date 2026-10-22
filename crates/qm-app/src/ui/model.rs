@@ -8,6 +8,8 @@ pub enum Phase {
     Calibrating,
     Running,
     Bypass,
+    /// Working, but the virtual microphone is not installed: nothing reaches other apps (recorder still works).
+    NoCable,
     Error,
 }
 

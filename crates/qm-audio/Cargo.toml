@@ -1,5 +1,5 @@
 [package]
-name = "qm-win"
+name = "qm-audio"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,3 +11,8 @@ anyhow = "1"
 wasapi = "0.26"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media", "Win32_System_Threading"] }
 rtrb = "0.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cpal = "0.18"
+rtrb = "0.3"
+libc = "0.2"

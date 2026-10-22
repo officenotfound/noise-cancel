@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use qm_engine::{Config, Engine, ModelId, Preset};
-use qm_win::{Processor, Session, SessionConfig};
+use qm_audio::{Processor, Session, SessionConfig};
 
 use super::{flag_value, logging::log, models_dir};
 
@@ -57,7 +57,7 @@ pub fn run(args: &[String], dir: &Path) {
         let rec = Arc::new(Mutex::new(Recording::default()));
         let rec2 = rec.clone();
         let models = models_dir();
-        let factory: qm_win::ProcessorFactory = Box::new(move || {
+        let factory: qm_audio::ProcessorFactory = Box::new(move || {
             Ok(Box::new(RecordingProcessor { engine: Engine::new(cfg, models, model)?, rec: rec2 }) as Box<dyn Processor>)
         });
         let sc = SessionConfig { input_id: flag_value(args, "--input-id"), ..Default::default() };

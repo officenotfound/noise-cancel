@@ -16,7 +16,7 @@ jobs:
       - name: Build
         run: cargo build --release -p qm-app -p qm-cli -p qm-bench
       - name: Test
-        run: cargo test --release -p qm-dsp -p qm-engine -p qm-win -p qm-app
+        run: cargo test --release -p qm-dsp -p qm-engine -p qm-audio -p qm-app
       - name: Fetch models
         shell: bash
         run: |
@@ -41,4 +41,24 @@ jobs:
         with:
           name: QuietMic-Setup
           path: dist/QuietMic-Setup.exe
+          retention-days: 14
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --release -p qm-dsp -p qm-engine -p qm-audio -p qm-app
+      - name: Fetch models
+        run: |
+          sh scripts/fetch_models.sh
+          sh scripts/fetch_models_fastenhancer.sh
+          sh scripts/fetch_models_dpdfnet.sh
+      - name: Package (.app and .dmg)
+        run: sh scripts/package_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QuietMic-macOS
+          path: dist/QuietMic-macOS.dmg
           retention-days: 14

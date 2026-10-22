@@ -2,7 +2,6 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -10,16 +9,15 @@ use eframe::egui;
 
 use super::controller::{Cmd, Controller};
 use super::logging;
-use super::tray::{self, Tray, TrayOut};
-use qm_win::player_core::PlayShared;
-use qm_win::Player;
+use super::os;
+use super::tray::{Tray, TrayOut};
+use qm_audio::player_core::PlayShared;
+use qm_audio::Player;
 
 use crate::recorder::{Recorder, SAMPLE_RATE};
 use crate::ui::model::{Backend, PlayState, RecState, Snapshot, UiCmd, WindowCmd};
 
-const VB_CABLE_URL: &str = "https://vb-audio.com/Cable/";
-
-pub struct WinBackend {
+pub struct AppBackend {
     ctl: Arc<Controller>,
     dir: PathBuf,
     mics: Vec<(Option<String>, String)>,
@@ -36,15 +34,15 @@ pub struct WinBackend {
 }
 
 fn list_mics() -> Vec<(Option<String>, String)> {
-    let mut v = vec![(None, "Windows default microphone".to_string())];
-    match qm_win::list_inputs() {
+    let mut v = vec![(None, os::DEFAULT_MIC_LABEL.to_string())];
+    match qm_audio::list_inputs() {
         Ok(l) => v.extend(l.into_iter().map(|d| (Some(d.id), d.name))),
         Err(e) => logging::log(format!("listing microphones failed: {e}")),
     }
     v
 }
 
-impl WinBackend {
+impl AppBackend {
     /// `ctx` is the egui context when a window exists (so tray clicks can wake it), `None` in tray-only mode.
     pub fn new(ctl: Arc<Controller>, dir: PathBuf, ctx: Option<egui::Context>) -> Self {
         let ctl_recorder = ctl.recorder.clone();
@@ -70,7 +68,7 @@ impl WinBackend {
 
     fn build_snapshot(&mut self, has_tray: bool) -> Snapshot {
         if self.vb_checked.map_or(true, |t| t.elapsed() > Duration::from_secs(3)) {
-            self.vb_found = qm_win::find_vb_cable().ok().flatten().is_some();
+            self.vb_found = qm_audio::find_virtual_cable().ok().flatten().is_some();
             self.vb_checked = Some(Instant::now());
         }
         let status = self.ctl.status.lock().unwrap().clone();
@@ -171,15 +169,7 @@ impl WinBackend {
     }
 }
 
-fn open(target: impl AsRef<std::ffi::OsStr>) {
-    let _ = Command::new("explorer.exe").arg(target).spawn();
-}
-
-fn notepad(path: &std::path::Path) {
-    let _ = Command::new("notepad.exe").arg(path).spawn();
-}
-
-impl Backend for WinBackend {
+impl Backend for AppBackend {
     fn snapshot(&mut self) -> Snapshot {
         let has_tray = self.tray.is_some();
         let snap = self.build_snapshot(has_tray);
@@ -198,9 +188,9 @@ impl Backend for WinBackend {
             UiCmd::SetAutostart(a) => self.ctl.send(Cmd::SetAutostart(a)),
             UiCmd::RefreshMics => self.mics = list_mics(),
             UiCmd::Recalibrate => self.ctl.send(Cmd::Recalibrate),
-            UiCmd::OpenReport => notepad(&self.dir.join("performance_report.txt")),
-            UiCmd::OpenLog => notepad(&logging::path(&self.dir)),
-            UiCmd::OpenVbCable => open(VB_CABLE_URL),
+            UiCmd::OpenReport => os::open_text_file(&self.dir.join("performance_report.txt")),
+            UiCmd::OpenLog => os::open_text_file(&logging::path(&self.dir)),
+            UiCmd::OpenVbCable => os::open_url(os::CABLE_URL),
             UiCmd::HideToTray => self.pending.push_back(WindowCmd::Hide),
             UiCmd::RecordToggle => self.toggle_record(),
             UiCmd::PlayToggle => self.toggle_play(),
@@ -231,9 +221,10 @@ impl Backend for WinBackend {
 }
 
 /// Fallback when the window cannot be created (for example no OpenGL): keep the tray icon and menu working.
-pub fn run_tray_only(mut backend: WinBackend) {
+#[cfg(windows)]
+pub fn run_tray_only(mut backend: AppBackend) {
     loop {
-        if !tray::pump_messages() {
+        if !super::tray::pump_messages() {
             return;
         }
         let _ = backend.snapshot();

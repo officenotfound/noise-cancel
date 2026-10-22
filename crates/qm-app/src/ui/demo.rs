@@ -18,6 +18,7 @@ impl DemoBackend {
         let phase = match state {
             "error" => Phase::Error,
             "bypass" => Phase::Bypass,
+            "nocable" => Phase::NoCable,
             "calibrating" => Phase::Calibrating,
             _ => Phase::Running,
         };
@@ -32,13 +33,13 @@ impl DemoBackend {
             input_level: 0.2,
             output_level: 0.1,
             input_name: "Headset Microphone".into(),
-            output_name: "CABLE Input (VB-Audio Virtual Cable)".into(),
+            output_name: if cfg!(target_os = "macos") { "BlackHole 2ch" } else { "CABLE Input (VB-Audio Virtual Cable)" }.into(),
             preset: Preset::Auto,
             bypass: phase == Phase::Bypass,
             guard: false,
             autostart: false,
             mics: vec![
-                (None, "Windows default microphone".into()),
+                (None, crate::app::os::DEFAULT_MIC_LABEL.into()),
                 (Some("mic1".into()), "Headset Microphone (USB Audio)".into()),
                 (Some("mic2".into()), "Microphone Array (Realtek Audio)".into()),
             ],
@@ -59,12 +60,18 @@ impl DemoBackend {
             _ => {}
         }
         if phase == Phase::Error {
-            d.snap.headline = "Not running: VB-Audio Virtual Cable is not installed".into();
-            d.snap.detail = "Install VB-Cable, then choose CABLE Output as your microphone.".into();
+            d.snap.headline = format!("Not running: {} is not installed", crate::app::os::CABLE_PRODUCT).into();
+            d.snap.detail = format!("Install {}, then choose {} as your microphone.", crate::app::os::CABLE_PRODUCT, crate::app::os::CABLE_PICK).into();
             d.snap.model.clear();
             d.snap.output_name.clear();
             d.snap.cpu_pct = 0.0;
             d.snap.est_delay_ms = 0.0;
+        }
+        if phase == Phase::NoCable {
+            d.snap.headline = format!("TEST MODE: {} is not installed", crate::app::os::CABLE_PRODUCT);
+            d.snap.detail = "Other apps cannot hear you yet. Try the recorder below.".into();
+            d.snap.output_name.clear();
+            d.snap.vb_cable_found = false;
         }
         if phase == Phase::Bypass {
             d.snap.headline = "BYPASS: microphone passes through unprocessed".into();
@@ -81,7 +88,7 @@ impl Backend for DemoBackend {
     fn snapshot(&mut self) -> Snapshot {
         let t = self.t0.elapsed().as_secs_f32();
         let mut s = self.snap.clone();
-        if matches!(s.phase, Phase::Running | Phase::Bypass) {
+        if matches!(s.phase, Phase::Running | Phase::Bypass | Phase::NoCable) {
             let talk = ((t * 1.7).sin() * 0.5 + 0.5).powi(2);
             s.input_level = 0.04 + 0.5 * talk;
             s.output_level = if s.phase == Phase::Bypass { s.input_level } else { 0.01 + 0.35 * talk };

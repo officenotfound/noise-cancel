@@ -85,6 +85,7 @@ impl RetroApp {
         match self.snap.phase {
             Phase::Running => ("Working", LED_GREEN, true),
             Phase::Bypass => ("Bypass - microphone passes through", LED_YELLOW, true),
+            Phase::NoCable => ("Test mode - not connected", LED_YELLOW, true),
             Phase::Calibrating => ("Measuring this PC...", LED_YELLOW, true),
             Phase::Starting => ("Starting...", LED_YELLOW, true),
             Phase::Error => ("Not running", LED_RED, true),
@@ -103,7 +104,7 @@ impl RetroApp {
                 "Options",
                 vec![
                     MenuEntry::check("Extra noise guard (+13 ms)", self.snap.guard),
-                    MenuEntry::check("Start with Windows", self.snap.autostart),
+                    MenuEntry::check(crate::app::os::AUTOSTART_LABEL, self.snap.autostart),
                     MenuEntry::item("Refresh microphone list").sep(),
                     MenuEntry::item("Re-measure this PC"),
                 ],
@@ -113,7 +114,7 @@ impl RetroApp {
                 vec![
                     MenuEntry::item("Performance report..."),
                     MenuEntry::item("Open log..."),
-                    MenuEntry::item("Get VB-Cable (virtual microphone)..."),
+                    MenuEntry::item(&format!("Get {} (virtual microphone)...", crate::app::os::CABLE_PRODUCT)),
                     MenuEntry::item("About QuietMic").sep(),
                 ],
             ),
@@ -150,15 +151,18 @@ impl RetroApp {
                 paragraph(ui, &self.snap.detail, egui::Color32::from_rgb(64, 64, 64));
             }
             ui.add_space(2.0);
-            for (name, lvl) in [("Mic", self.snap.input_level), ("Out", self.snap.output_level)] {
-                let (f, txt) = level_frac(lvl);
-                ui.horizontal(|ui| {
-                    label_w(ui, name, 34.0);
-                    meter(ui, f, ui.available_width() - 74.0);
-                    label(ui, &txt);
-                });
+            // Meters only mean something while audio is flowing.
+            if matches!(self.snap.phase, Phase::Running | Phase::Bypass | Phase::NoCable) {
+                for (name, lvl) in [("Mic", self.snap.input_level), ("Out", self.snap.output_level)] {
+                    let (f, txt) = level_frac(lvl);
+                    ui.horizontal(|ui| {
+                        label_w(ui, name, 34.0);
+                        meter(ui, f, ui.available_width() - 74.0);
+                        label(ui, &txt);
+                    });
+                }
+                ui.add_space(2.0);
             }
-            ui.add_space(2.0);
             ui.horizontal(|ui| {
                 let w = (ui.available_width() - ui.spacing().item_spacing.x) / 2.0;
                 let r = button(ui, "Bypass", true, self.snap.bypass, w);
@@ -197,7 +201,7 @@ impl RetroApp {
         });
 
         group_box(ui, "Microphone", |ui| {
-            let mut names = vec!["Windows default microphone".to_string()];
+            let mut names = vec![crate::app::os::DEFAULT_MIC_LABEL.to_string()];
             names.extend(self.snap.mics.iter().filter(|(id, _)| id.is_some()).map(|(_, n)| n.clone()));
             let idx = self.snap.mics.iter().position(|(id, _)| *id == self.snap.selected_mic).unwrap_or(0);
             let shown = names.get(idx).cloned().unwrap_or_default();
@@ -274,7 +278,7 @@ impl RetroApp {
         if let Some(h) = hover_help {
             self.help = h;
         } else {
-            self.help = if self.snap.vb_cable_found || self.snap.phase != Phase::Error { "Ready".into() } else { "Install VB-Cable, then pick CABLE Output.".into() };
+            self.help = if self.snap.vb_cable_found || self.snap.phase != Phase::Error { "Ready".into() } else { format!("Install {}, then pick {}.", crate::app::os::CABLE_PRODUCT, crate::app::os::CABLE_PICK) };
         }
     }
 
@@ -338,7 +342,13 @@ impl eframe::App for RetroApp {
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(Layout::top_down(egui::Align::Min)), |ui| {
             ui.spacing_mut().item_spacing = Vec2::new(8.0, 4.0);
             match title_bar(ui, "QuietMic - Noise Canceller") {
-                TitleAction::Minimize => ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true)),
+                TitleAction::Minimize => {
+                    if cfg!(target_os = "macos") && self.snap.has_tray {
+                        window_cmd = Some(UiCmd::HideToTray); // frameless macOS windows cannot be minimised
+                    } else {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+                }
                 TitleAction::Close => window_cmd = Some(if self.snap.has_tray { UiCmd::HideToTray } else { UiCmd::Quit }),
                 TitleAction::None => {}
             }
@@ -367,7 +377,7 @@ impl eframe::App for RetroApp {
         if let Some(c) = window_cmd {
             self.backend.command(c);
         }
-        if matches!(self.snap.phase, Phase::Running | Phase::Calibrating | Phase::Starting) || true {
+        if true {
             ctx.request_repaint_after(Duration::from_millis(60));
         }
 

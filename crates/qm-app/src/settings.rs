@@ -1,7 +1,7 @@
 //! Persistent user settings (`%APPDATA%\QuietMic\settings.toml`). Platform independent so it is tested everywhere.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use qm_engine::{ModelId, Preset};
@@ -43,13 +43,10 @@ impl Settings {
     }
 }
 
-/// `%APPDATA%\QuietMic` (falls back to `./QuietMic-data` when APPDATA is unset).
-pub fn data_dir() -> PathBuf {
-    std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("QuietMic")).unwrap_or_else(|| PathBuf::from("QuietMic-data"))
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {

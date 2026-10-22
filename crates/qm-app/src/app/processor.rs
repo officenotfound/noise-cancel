@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use qm_engine::Engine;
-use qm_win::Processor;
+use qm_audio::Processor;
 
 use crate::recorder::Recorder;
 

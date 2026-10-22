@@ -27,6 +27,12 @@ Checking only; linking an `.exe` needs the MSVC toolchain, so real builds come f
   without VB-Cable use `QuietMic.exe --selftest 6` (writes `%APPDATA%\QuietMic\selftest.txt` and WAVs).
 
 ## Architecture (Windows)
-`qm-win` (WASAPI capture/render threads, lock-free ring, drift-compensating resampler, device listing, VB-Cable detection)
+`qm-audio` (WASAPI capture/render threads, lock-free ring, drift-compensating resampler, device listing, VB-Cable detection)
 -> `qm-app` (supervisor thread: calibration, restart on failure/device change; tray menu; settings TOML; log file)
 -> `qm-engine` (presets, reframer, gate, limiter, governor) -> `qm-dsp` (models).
+
+## macOS
+- Build and package locally: `scripts/package_macos.sh` (needs the models; produces `dist/QuietMic.app` and `dist/QuietMic-macOS.dmg`).
+- Preview the window with no audio and no permissions: `target/release/QuietMic --demo --screenshot out.png --state running|bypass|calibrating|error|nocable|recording|recorded|playing [--open file|options|help|about]`.
+- The first launch of the real app asks for microphone access (Info.plist text in the packaging script). Reset with `tccutil reset Microphone com.quietmic.app`.
+- Self-test of the audio path without a virtual cable: `QuietMic --selftest 6` (records the microphone for 6 s to the data folder).

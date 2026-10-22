@@ -2,37 +2,18 @@
 //! ring buffer. The render side reads through [`DriftResampler`] to absorb clock drift between the devices.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use wasapi::{
-    initialize_mta, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat,
-};
+use wasapi::{initialize_mta, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat};
 use windows::core::w;
 use windows::Win32::System::Threading::AvSetMmThreadCharacteristicsW;
 
 use crate::drift::{ratio_for_fill, DriftResampler, Source};
-
-pub const SAMPLE_RATE: usize = 48_000;
-/// Default ring fill the render side tries to hold (samples). One capture period; this is latency we add.
-pub const DEFAULT_TARGET_FILL: usize = 480;
-const RING_CAPACITY: usize = SAMPLE_RATE / 4;
-
-/// What the capture thread hands each block to. Created *inside* the capture thread (it need not be `Send`).
-pub trait Processor {
-    fn process(&mut self, input: &[f32], output: &mut [f32]) -> Result<()>;
-}
-
-pub type ProcessorFactory = Box<dyn FnOnce() -> Result<Box<dyn Processor>> + Send>;
-
-#[derive(Clone, Debug)]
-pub struct DeviceInfo {
-    pub id: String,
-    pub name: String,
-}
+use crate::types::*;
 
 fn list(direction: Direction) -> Result<Vec<DeviceInfo>> {
     let _ = initialize_mta();
@@ -68,7 +49,7 @@ pub fn default_output() -> Result<DeviceInfo> {
 }
 
 /// The VB-Audio Virtual Cable render endpoint ("CABLE Input"), if installed.
-pub fn find_vb_cable() -> Result<Option<DeviceInfo>> {
+pub fn find_virtual_cable() -> Result<Option<DeviceInfo>> {
     Ok(list_outputs()?.into_iter().find(|d| d.name.to_lowercase().contains("cable input")))
 }
 
@@ -78,64 +59,6 @@ pub(crate) fn pro_audio_priority() {
     unsafe {
         let _ = AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut idx);
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct SessionConfig {
-    /// Capture device id; `None` = system default microphone.
-    pub input_id: Option<String>,
-    /// Render device id; `None` = system default speakers (used for testing without a virtual cable).
-    pub output_id: Option<String>,
-    pub target_fill: usize,
-}
-
-impl Default for SessionConfig {
-    fn default() -> Self {
-        Self { input_id: None, output_id: None, target_fill: DEFAULT_TARGET_FILL }
-    }
-}
-
-#[derive(Default)]
-struct Shared {
-    stop: AtomicBool,
-    captured_frames: AtomicU64,
-    rendered_frames: AtomicU64,
-    underruns: AtomicU64,
-    overflows: AtomicU64,
-    ring_fill: AtomicUsize,
-    capture_period_frames: AtomicUsize,
-    /// Peak of the last block, as f32 bits.
-    input_peak: AtomicU32,
-    output_peak: AtomicU32,
-    error: Mutex<Option<String>>,
-    input_name: Mutex<String>,
-    output_name: Mutex<String>,
-}
-
-impl Shared {
-    fn fail(&self, who: &str, e: impl std::fmt::Display) {
-        let mut slot = self.error.lock().unwrap();
-        if slot.is_none() {
-            *slot = Some(format!("{who}: {e}"));
-        }
-        self.stop.store(true, Ordering::SeqCst);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Stats {
-    pub captured_frames: u64,
-    pub rendered_frames: u64,
-    pub underruns: u64,
-    pub overflows: u64,
-    pub ring_fill: usize,
-    pub capture_period_frames: usize,
-    /// Peak level (linear, 0..1) of the most recent block before and after processing.
-    pub input_peak: f32,
-    pub output_peak: f32,
-    pub input_name: String,
-    pub output_name: String,
-    pub error: Option<String>,
 }
 
 pub struct Session {
@@ -157,32 +80,20 @@ impl Session {
                 }
             })?
         };
-        let ren = {
+        let mut threads = vec![cap];
+        if !cfg.discard_output {
             let (sh, cfg) = (shared.clone(), cfg);
-            thread::Builder::new().name("qm-render".into()).spawn(move || {
+            threads.push(thread::Builder::new().name("qm-render".into()).spawn(move || {
                 if let Err(e) = render_main(&sh, &cfg, cons) {
                     sh.fail("render", e);
                 }
-            })?
-        };
-        Ok(Session { shared, threads: vec![cap, ren] })
+            })?);
+        }
+        Ok(Session { shared, threads })
     }
 
     pub fn stats(&self) -> Stats {
-        let s = &self.shared;
-        Stats {
-            captured_frames: s.captured_frames.load(Ordering::Relaxed),
-            rendered_frames: s.rendered_frames.load(Ordering::Relaxed),
-            underruns: s.underruns.load(Ordering::Relaxed),
-            overflows: s.overflows.load(Ordering::Relaxed),
-            ring_fill: s.ring_fill.load(Ordering::Relaxed),
-            capture_period_frames: s.capture_period_frames.load(Ordering::Relaxed),
-            input_peak: f32::from_bits(s.input_peak.load(Ordering::Relaxed)),
-            output_peak: f32::from_bits(s.output_peak.load(Ordering::Relaxed)),
-            input_name: s.input_name.lock().unwrap().clone(),
-            output_name: s.output_name.lock().unwrap().clone(),
-            error: s.error.lock().unwrap().clone(),
-        }
+        self.shared.stats()
     }
 
     /// True once a thread has stopped because of an error (device unplugged, format change, ...).
@@ -259,14 +170,14 @@ fn capture_main(sh: &Shared, cfg: &SessionConfig, factory: ProcessorFactory, mut
         output.clear();
         output.resize(samples, 0.0);
         processor.process(&input, &mut output)?;
-        let peak = |x: &[f32]| x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
-        sh.input_peak.store(peak(&input).to_bits(), Ordering::Relaxed);
-        sh.output_peak.store(peak(&output).to_bits(), Ordering::Relaxed);
+        sh.store_peaks(&input, &output);
         sh.captured_frames.fetch_add(samples as u64, Ordering::Relaxed);
-        for &s in &output {
-            if prod.push(s).is_err() {
-                sh.overflows.fetch_add(1, Ordering::Relaxed);
-                break;
+        if !cfg.discard_output {
+            for &s in &output {
+                if prod.push(s).is_err() {
+                    sh.overflows.fetch_add(1, Ordering::Relaxed);
+                    break;
+                }
             }
         }
     }
