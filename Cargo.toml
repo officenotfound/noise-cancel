@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/qm-dsp", "crates/qm-bench", "crates/qm-engine", "crates/qm-cli", "crates/qm-audio", "crates/qm-app"]
+members = ["crates/qm-dsp", "crates/qm-bench", "crates/qm-engine", "crates/qm-cli", "crates/qm-audio", "crates/qm-app", "crates/qm-voice"]
 
 [workspace.package]
 edition = "2021"

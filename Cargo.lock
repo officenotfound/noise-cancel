@@ -2619,6 +2619,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "qm-voice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hound",
+ "realfft",
+ "tract-onnx 0.23.9",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
