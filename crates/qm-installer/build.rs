@@ -21,6 +21,11 @@ fn add(zw: &mut zip::ZipWriter<std::fs::File>, root: &Path, dir: &Path) {
 
 fn main() {
     println!("cargo:rerun-if-env-changed=QM_PAYLOAD_DIR");
+    println!("cargo:rerun-if-changed=../../assets/quietmic.res");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let res = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../assets/quietmic.res");
+        println!("cargo:rustc-link-arg-bins={}", res.display());
+    }
     let out = Path::new(&std::env::var("OUT_DIR").unwrap()).join("payload.zip");
     let mut zw = zip::ZipWriter::new(std::fs::File::create(&out).unwrap());
     if let Some(dir) = std::env::var_os("QM_PAYLOAD_DIR") {
