@@ -179,7 +179,7 @@ fn start_session(app: &App) -> Result<Session> {
         let engine = Engine::new(cfg, models, Some(model))?;
         Ok(Box::new(EngineProcessor::new(engine, bypass, status, recorder)) as Box<dyn Processor>)
     });
-    Session::start(SessionConfig { input_id, output_id, target_fill: DEFAULT_TARGET_FILL, discard_output: test_mode }, factory)
+    Session::start(SessionConfig { input_id, output_id, target_fill: DEFAULT_TARGET_FILL, discard_output: test_mode, ..Default::default() }, factory)
 }
 
 fn refresh_status(app: &App, session: &Session) {

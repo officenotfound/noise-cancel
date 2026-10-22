@@ -132,38 +132,68 @@ fn run_session(sh: &Arc<Shared>, cfg: &SessionConfig, factory: ProcessorFactory)
     let (mut in_prod, in_cons) = rtrb::RingBuffer::<f32>::new(in_rate as usize);
     let (out_prod, out_cons) = rtrb::RingBuffer::<f32>::new(RING_CAPACITY);
 
-    // ---- DSP thread: native-rate mono -> 48 kHz -> processor -> 48 kHz ring
-    let dsp = {
-        let sh = sh.clone();
-        let discard = cfg.discard_output;
-        thread::Builder::new().name("qm-dsp".into()).spawn(move || {
-            realtime_priority();
-            if let Err(e) = dsp_main(&sh, in_cons, out_prod, in_rate as f64, factory, discard) {
-                sh.fail("processing", format!("{e:#}"));
-            }
-        })?
-    };
+    // The processor (model loading takes a few hundred ms) is built here, before any audio flows.
+    let processor = factory()?;
+    let dsp = Dsp::new(processor, in_rate as f64);
+    let discard = cfg.discard_output;
 
-    // ---- input stream
+    // ---- input stream, and the DSP either inline (in the real-time callback) or on its own thread
     let in_stream_cfg = cpal::StreamConfig { channels: in_cfg.channels(), sample_rate: in_rate, buffer_size: cpal::BufferSize::Default };
     let sh_in = sh.clone();
-    let in_stream = in_dev.build_input_stream(
-        in_stream_cfg,
-        move |data: &[f32], _| {
-            sh_in.capture_period_frames.store(data.len() / in_ch.max(1), Ordering::Relaxed);
-            for frame in data.chunks_exact(in_ch.max(1)) {
-                let mono = frame.iter().sum::<f32>() / in_ch.max(1) as f32;
-                if in_prod.push(mono).is_err() {
-                    sh_in.overflows.fetch_add(1, Ordering::Relaxed);
+    let err_in = {
+        let sh = sh.clone();
+        move |e| sh.fail("microphone", e)
+    };
+    let mut dsp_thread = None;
+    let in_stream = if cfg.inline_dsp {
+        let mut dsp = SendBox(dsp);
+        let mut out_prod = SendBox(out_prod);
+        let mut mono: Vec<f32> = Vec::with_capacity(8192);
+        let mut qos_set = false;
+        in_dev.build_input_stream(
+            in_stream_cfg,
+            move |data: &[f32], _| {
+                if !qos_set {
+                    realtime_priority();
+                    qos_set = true;
                 }
+                sh_in.capture_period_frames.store(data.len() / in_ch.max(1), Ordering::Relaxed);
+                mono.clear();
+                for frame in data.chunks_exact(in_ch.max(1)) {
+                    mono.push(frame.iter().sum::<f32>() / in_ch.max(1) as f32);
+                }
+                if let Err(e) = dsp.get().feed(&mono, &sh_in, out_prod.get(), discard) {
+                    sh_in.fail("processing", format!("{e:#}"));
+                }
+            },
+            err_in,
+            None,
+        )?
+    } else {
+        let sh_dsp = sh.clone();
+        let boxed = SendBox((dsp, in_cons, out_prod));
+        dsp_thread = Some(thread::Builder::new().name("qm-dsp".into()).spawn(move || {
+            realtime_priority();
+            let (dsp, in_cons, out_prod) = boxed.into_inner();
+            if let Err(e) = dsp_thread_main(&sh_dsp, in_cons, out_prod, dsp, discard) {
+                sh_dsp.fail("processing", format!("{e:#}"));
             }
-        },
-        {
-            let sh = sh.clone();
-            move |e| sh.fail("microphone", e)
-        },
-        None,
-    )?;
+        })?);
+        in_dev.build_input_stream(
+            in_stream_cfg,
+            move |data: &[f32], _| {
+                sh_in.capture_period_frames.store(data.len() / in_ch.max(1), Ordering::Relaxed);
+                for frame in data.chunks_exact(in_ch.max(1)) {
+                    let mono = frame.iter().sum::<f32>() / in_ch.max(1) as f32;
+                    if in_prod.push(mono).is_err() {
+                        sh_in.overflows.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            },
+            err_in,
+            None,
+        )?
+    };
 
     // ---- output stream (absent in test mode)
     let out_stream = match (&out_dev, &out_cfg) {
@@ -172,6 +202,8 @@ fn run_session(sh: &Arc<Shared>, cfg: &SessionConfig, factory: ProcessorFactory)
             let out_stream_cfg = cpal::StreamConfig { channels: out_cfg.channels(), sample_rate: out_rate, buffer_size: cpal::BufferSize::Default };
             let sh_out = sh.clone();
             let target_fill = cfg.target_fill;
+            let mut cushion = cfg.cushion;
+            sh.cushion_bits.store(cushion.to_bits(), Ordering::Relaxed);
             let base_ratio = SAMPLE_RATE as f64 / out_rate as f64; // 48 kHz samples consumed per output sample
             let mut src = RingSource(out_cons);
             let mut resampler = DriftResampler::new();
@@ -185,7 +217,13 @@ fn run_session(sh: &Arc<Shared>, cfg: &SessionConfig, factory: ProcessorFactory)
                     sh_out.ring_fill.store(fill, Ordering::Relaxed);
                     // The cushion must cover at least one and a half device callbacks (in 48 kHz samples), or the
                     // ring runs dry between processing bursts and the output crackles.
-                    let target = target_fill.max((frames as f64 * base_ratio * 1.5) as usize);
+                    let target = target_fill.max((frames as f64 * base_ratio * cushion as f64) as usize);
+                    if !priming {
+                        let seen = sh_out.min_fill_plus1.load(Ordering::Relaxed);
+                        if seen == 0 || fill + 1 < seen {
+                            sh_out.min_fill_plus1.store(fill + 1, Ordering::Relaxed);
+                        }
+                    }
                     mono.clear();
                     mono.resize(frames, 0.0);
                     if priming && fill >= target {
@@ -197,6 +235,9 @@ fn run_session(sh: &Arc<Shared>, cfg: &SessionConfig, factory: ProcessorFactory)
                         if real < frames {
                             sh_out.underruns.fetch_add(1, Ordering::Relaxed);
                             priming = true;
+                            // A dropout means the cushion was too small for this machine's scheduling jitter: grow it.
+                            cushion = (cushion + 0.5).min(MAX_CUSHION);
+                            sh_out.cushion_bits.store(cushion.to_bits(), Ordering::Relaxed);
                         }
                     }
                     for (frame, m) in data.chunks_exact_mut(out_ch.max(1)).zip(&mono) {
@@ -223,64 +264,113 @@ fn run_session(sh: &Arc<Shared>, cfg: &SessionConfig, factory: ProcessorFactory)
     }
     drop(in_stream);
     drop(out_stream);
-    let _ = dsp.join();
+    if let Some(t) = dsp_thread {
+        let _ = t.join();
+    }
     Ok(())
 }
 
-fn dsp_main(
-    sh: &Shared,
-    mut in_cons: rtrb::Consumer<f32>,
-    mut out_prod: rtrb::Producer<f32>,
-    in_rate: f64,
-    factory: ProcessorFactory,
-    discard: bool,
-) -> Result<()> {
-    let mut processor = factory()?;
-    let ratio = in_rate / SAMPLE_RATE as f64; // native samples consumed per 48 kHz sample
-    let convert = (ratio - 1.0).abs() > 1e-6;
-    let mut queue: VecDeque<f32> = VecDeque::new();
-    let mut resampler = DriftResampler::new();
-    let mut block: Vec<f32> = Vec::new();
-    let mut output: Vec<f32> = Vec::new();
-    while !sh.stop.load(Ordering::Relaxed) {
-        let n = in_cons.slots().min(8192);
-        if n == 0 {
-            thread::sleep(Duration::from_millis(1));
-            continue;
+/// Wrapper to move a value to the one thread that will use it. The processor is built on the control thread and then
+/// used by exactly one audio thread; nothing in it is tied to the thread that created it.
+struct SendBox<T>(T);
+unsafe impl<T> Send for SendBox<T> {}
+
+impl<T> SendBox<T> {
+    // Going through a method makes closures capture the whole wrapper (not just the field inside it).
+    fn get(&mut self) -> &mut T {
+        &mut self.0
+    }
+
+    fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+/// Native-rate mono in, processed 48 kHz out: sample-rate conversion, the processor, stats, and the output ring.
+struct Dsp {
+    processor: Box<dyn Processor>,
+    ratio: f64,
+    convert: bool,
+    queue: VecDeque<f32>,
+    resampler: DriftResampler,
+    block: Vec<f32>,
+    output: Vec<f32>,
+    blocks: u64,
+}
+
+impl Dsp {
+    fn new(processor: Box<dyn Processor>, in_rate: f64) -> Self {
+        let ratio = in_rate / SAMPLE_RATE as f64; // native samples consumed per 48 kHz sample
+        Self {
+            processor,
+            ratio,
+            convert: (ratio - 1.0).abs() > 1e-6,
+            queue: VecDeque::new(),
+            resampler: DriftResampler::new(),
+            block: Vec::with_capacity(8192),
+            output: Vec::with_capacity(8192),
+            blocks: 0,
         }
-        block.clear();
-        if convert {
-            for _ in 0..n {
-                if let Ok(s) = in_cons.pop() {
-                    queue.push_back(s);
-                }
-            }
-            let out_n = ((queue.len() as f64 - 2.0) / ratio).floor().max(0.0) as usize;
+    }
+
+    fn feed(&mut self, native: &[f32], sh: &Shared, out_prod: &mut rtrb::Producer<f32>, discard: bool) -> Result<()> {
+        self.block.clear();
+        if self.convert {
+            self.queue.extend(native.iter().copied());
+            let out_n = ((self.queue.len() as f64 - 2.0) / self.ratio).floor().max(0.0) as usize;
             if out_n == 0 {
-                continue;
+                return Ok(());
             }
-            block.resize(out_n, 0.0);
-            resampler.process(&mut block, &mut queue, ratio);
+            self.block.resize(out_n, 0.0);
+            self.resampler.process(&mut self.block, &mut self.queue, self.ratio);
         } else {
-            for _ in 0..n {
-                if let Ok(s) = in_cons.pop() {
-                    block.push(s);
-                }
+            self.block.extend_from_slice(native);
+        }
+        if self.block.is_empty() {
+            return Ok(());
+        }
+        self.output.clear();
+        self.output.resize(self.block.len(), 0.0);
+        let t0 = std::time::Instant::now();
+        self.processor.process(&self.block, &mut self.output)?;
+        self.blocks += 1;
+        if self.blocks > 100 {
+            let us = t0.elapsed().as_micros() as u64;
+            sh.max_dsp_us.fetch_max(us, Ordering::Relaxed);
+            if us > 5_000 {
+                sh.slow_blocks.fetch_add(1, Ordering::Relaxed);
             }
         }
-        output.clear();
-        output.resize(block.len(), 0.0);
-        processor.process(&block, &mut output)?;
-        sh.store_peaks(&block, &output);
-        sh.captured_frames.fetch_add(block.len() as u64, Ordering::Relaxed);
+        sh.store_peaks(&self.block, &self.output);
+        sh.captured_frames.fetch_add(self.block.len() as u64, Ordering::Relaxed);
         if !discard {
-            for &s in &output {
+            for &s in &self.output {
                 if out_prod.push(s).is_err() {
                     sh.overflows.fetch_add(1, Ordering::Relaxed);
                     break;
                 }
             }
         }
+        Ok(())
+    }
+}
+
+/// Separate-thread mode: pull native-rate mono from the input ring and feed the processor.
+fn dsp_thread_main(sh: &Shared, mut in_cons: rtrb::Consumer<f32>, mut out_prod: rtrb::Producer<f32>, mut dsp: Dsp, discard: bool) -> Result<()> {
+    let mut native: Vec<f32> = Vec::with_capacity(8192);
+    while !sh.stop.load(Ordering::Relaxed) {
+        let n = in_cons.slots().min(8192);
+        if n == 0 {
+            thread::sleep(Duration::from_millis(1));
+            continue;
+        }
+        native.clear();
+        for _ in 0..n {
+            if let Ok(s) = in_cons.pop() {
+                native.push(s);
+            }
+        }
+        dsp.feed(&native, sh, &mut out_prod, discard)?;
     }
     Ok(())
 }

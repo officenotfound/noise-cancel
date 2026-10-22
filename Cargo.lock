@@ -2546,6 +2546,7 @@ dependencies = [
  "anyhow",
  "eframe",
  "hound",
+ "objc2-foundation 0.3.2",
  "png",
  "qm-audio",
  "qm-dsp",

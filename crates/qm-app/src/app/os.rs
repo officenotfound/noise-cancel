@@ -121,3 +121,21 @@ pub fn set_autostart(on: bool, exe: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+// ---------------------------------------------------------------- scheduling
+
+/// Tell macOS this process does latency-critical work, so it is not put to sleep or throttled as a background app
+/// (App Nap) while the window is hidden in the menu bar. Without this, real-time audio blocks occasionally stall.
+#[cfg(target_os = "macos")]
+pub fn keep_awake_for_audio() {
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+    let token = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+        NSActivityOptions::UserInitiated | NSActivityOptions::LatencyCritical,
+        &NSString::from_str("Real-time microphone noise removal"),
+    );
+    // The activity lasts as long as the token lives: keep it for the whole run.
+    std::mem::forget(token);
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn keep_awake_for_audio() {}

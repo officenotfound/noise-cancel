@@ -60,17 +60,18 @@ pub fn run(args: &[String], dir: &Path) {
         let factory: qm_audio::ProcessorFactory = Box::new(move || {
             Ok(Box::new(RecordingProcessor { engine: Engine::new(cfg, models, model)?, rec: rec2 }) as Box<dyn Processor>)
         });
-        let sc = SessionConfig { input_id: flag_value(args, "--input-id"), ..Default::default() };
+        let cushion: f32 = flag_value(args, "--cushion").and_then(|s| s.parse().ok()).unwrap_or(qm_audio::DEFAULT_CUSHION);
+        let sc = SessionConfig { input_id: flag_value(args, "--input-id"), cushion, inline_dsp: if args.iter().any(|a| a == "--threaded") { false } else { SessionConfig::default().inline_dsp }, ..Default::default() };
         let session = Session::start(sc, factory)?;
         std::thread::sleep(Duration::from_secs(secs));
         let st = session.stats();
         session.stop();
         let r = rec.lock().unwrap();
         report.push_str(&format!(
-            "selftest {secs}s preset={} model={}\ninput device : {}\noutput device: {}\ncaptured frames: {} ({:.1} s)\nrendered frames: {}\nunderruns: {}  overflows: {}\ncapture period: {} frames\nerror: {:?}\n",
-            preset.name(), model.map(|m| m.name()).unwrap_or("preset default"), st.input_name, st.output_name,
+            "selftest {secs}s preset={} model={} cushion={cushion} inline={}\ninput device : {}\noutput device: {}\ncaptured frames: {} ({:.1} s)\nrendered frames: {}\nunderruns: {}  overflows: {}\ncapture period: {} frames\nmin ring fill at output callback: {:?} samples, slowest processing block (after start-up): {} us, blocks over 5 ms: {}\nfinal cushion: {:.1} callbacks\nerror: {:?}\n",
+            preset.name(), model.map(|m| m.name()).unwrap_or("preset default"), !args.iter().any(|a| a == "--threaded") && SessionConfig::default().inline_dsp, st.input_name, st.output_name,
             st.captured_frames, st.captured_frames as f64 / 48_000.0, st.rendered_frames, st.underruns, st.overflows,
-            st.capture_period_frames, st.error
+            st.capture_period_frames, st.min_fill, st.max_dsp_us, st.slow_blocks, st.cushion, st.error
         ));
         if !r.input.is_empty() {
             let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();

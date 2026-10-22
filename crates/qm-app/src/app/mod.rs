@@ -24,6 +24,7 @@ pub fn run() {
     logging::init(&dir);
     // The app has no console on Windows; make sure a crash leaves a trace in the log file.
     std::panic::set_hook(Box::new(|info| logging::log(format!("PANIC: {info}"))));
+    os::keep_awake_for_audio();
     logging::log(format!("QuietMic {} starting; args {:?}", env!("CARGO_PKG_VERSION"), &args[1..]));
 
     // Design preview with simulated data (no audio): `--demo [--state running|bypass|calibrating|error|recording|recorded|playing]

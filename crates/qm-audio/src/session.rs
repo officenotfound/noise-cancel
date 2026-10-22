@@ -223,6 +223,8 @@ fn render_main(sh: &Shared, cfg: &SessionConfig, cons: rtrb::Consumer<f32>) -> R
     let mut src = RingSource(cons);
     let mut resampler = DriftResampler::new();
     let mut waiting_to_prime = true;
+    let mut cushion = cfg.cushion;
+    sh.cushion_bits.store(cushion.to_bits(), Ordering::Relaxed);
     let mut out_f32: Vec<f32> = Vec::new();
     let mut out_bytes: Vec<u8> = Vec::new();
     while !sh.stop.load(Ordering::Relaxed) {
@@ -239,7 +241,7 @@ fn render_main(sh: &Shared, cfg: &SessionConfig, cons: rtrb::Consumer<f32>) -> R
         out_f32.resize(frames, 0.0);
 
         // The cushion must cover at least one and a half device periods, or the ring runs dry between bursts.
-        let target = cfg.target_fill.max(frames + frames / 2);
+        let target = cfg.target_fill.max((frames as f32 * cushion) as usize);
         if waiting_to_prime {
             // After start or an underrun, hold silence until the ring has refilled to target (avoids repeated crackle).
             if fill >= target {
@@ -252,6 +254,8 @@ fn render_main(sh: &Shared, cfg: &SessionConfig, cons: rtrb::Consumer<f32>) -> R
             if real < frames {
                 sh.underruns.fetch_add(1, Ordering::Relaxed);
                 waiting_to_prime = true;
+                cushion = (cushion + 0.5).min(MAX_CUSHION);
+                sh.cushion_bits.store(cushion.to_bits(), Ordering::Relaxed);
             }
         }
 
