@@ -2,7 +2,7 @@
 //! ring buffer. The render side reads through [`DriftResampler`] to absorb clock drift between the devices.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -104,6 +104,9 @@ struct Shared {
     overflows: AtomicU64,
     ring_fill: AtomicUsize,
     capture_period_frames: AtomicUsize,
+    /// Peak of the last block, as f32 bits.
+    input_peak: AtomicU32,
+    output_peak: AtomicU32,
     error: Mutex<Option<String>>,
     input_name: Mutex<String>,
     output_name: Mutex<String>,
@@ -127,6 +130,9 @@ pub struct Stats {
     pub overflows: u64,
     pub ring_fill: usize,
     pub capture_period_frames: usize,
+    /// Peak level (linear, 0..1) of the most recent block before and after processing.
+    pub input_peak: f32,
+    pub output_peak: f32,
     pub input_name: String,
     pub output_name: String,
     pub error: Option<String>,
@@ -171,6 +177,8 @@ impl Session {
             overflows: s.overflows.load(Ordering::Relaxed),
             ring_fill: s.ring_fill.load(Ordering::Relaxed),
             capture_period_frames: s.capture_period_frames.load(Ordering::Relaxed),
+            input_peak: f32::from_bits(s.input_peak.load(Ordering::Relaxed)),
+            output_peak: f32::from_bits(s.output_peak.load(Ordering::Relaxed)),
             input_name: s.input_name.lock().unwrap().clone(),
             output_name: s.output_name.lock().unwrap().clone(),
             error: s.error.lock().unwrap().clone(),
@@ -251,6 +259,9 @@ fn capture_main(sh: &Shared, cfg: &SessionConfig, factory: ProcessorFactory, mut
         output.clear();
         output.resize(samples, 0.0);
         processor.process(&input, &mut output)?;
+        let peak = |x: &[f32]| x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        sh.input_peak.store(peak(&input).to_bits(), Ordering::Relaxed);
+        sh.output_peak.store(peak(&output).to_bits(), Ordering::Relaxed);
         sh.captured_frames.fetch_add(samples as u64, Ordering::Relaxed);
         for &s in &output {
             if prod.push(s).is_err() {

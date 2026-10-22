@@ -12,6 +12,12 @@ Set-up (once)
   3. In Zoom / Teams / your softphone, choose "CABLE Output (VB-Audio Virtual Cable)" as the MICROPHONE.
   4. Use a headset. Keep the softphone's own echo cancellation ON and its noise suppression LOW or OFF.
 
+The window
+  QuietMic opens a small Windows-95-style window: a status lamp, level meters for your microphone and the cleaned
+  output, preset buttons, the microphone drop-down, and the speed/delay readouts. The X button hides it to the tray;
+  click the tray circle to bring it back. 'Start with Windows' starts hidden in the tray. If the window cannot open
+  on a PC (no graphics support) QuietMic keeps running as a tray-only app.
+
 First start
   The first launch measures how fast this PC is (a few seconds), picks the strongest model it can run safely, and
   remembers it. Right-click the tray icon for presets, microphone choice, "Re-measure this PC" and

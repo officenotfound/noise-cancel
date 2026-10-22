@@ -19,13 +19,19 @@ use super::processor::{EngineProcessor, EngineStatus};
 use crate::report;
 use crate::settings::Settings;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phase {
-    Starting,
-    Calibrating,
-    Running,
-    Bypass,
-    Error,
+pub use crate::ui::model::Phase;
+
+/// Numbers for the window's meters and performance panel.
+#[derive(Clone, Debug, Default)]
+pub struct Live {
+    pub model: String,
+    pub est_delay_ms: f32,
+    pub cpu_pct: f32,
+    pub dropouts: u64,
+    pub input_peak: f32,
+    pub output_peak: f32,
+    pub input_name: String,
+    pub output_name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -49,13 +55,15 @@ pub struct Controller {
     tx: Sender<Cmd>,
     pub status: Arc<Mutex<Status>>,
     pub settings: Arc<Mutex<Settings>>,
-    handle: Option<JoinHandle<()>>,
+    pub live: Arc<Mutex<Live>>,
+    handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 struct App {
     dir: PathBuf,
     settings: Arc<Mutex<Settings>>,
     status: Arc<Mutex<Status>>,
+    live: Arc<Mutex<Live>>,
     engine_status: Arc<Mutex<EngineStatus>>,
     bypass: Arc<AtomicBool>,
     output_override: Option<String>,
@@ -81,22 +89,23 @@ impl Controller {
             dir,
             settings: Arc::new(Mutex::new(settings)),
             status: Arc::new(Mutex::new(Status { phase: Phase::Starting, headline: "Starting...".into(), detail: String::new() })),
+            live: Arc::new(Mutex::new(Live::default())),
             engine_status: Arc::new(Mutex::new(EngineStatus::default())),
             bypass,
             output_override,
         };
-        let (status, settings) = (app.status.clone(), app.settings.clone());
+        let (status, settings, live) = (app.status.clone(), app.settings.clone(), app.live.clone());
         let handle = std::thread::Builder::new().name("qm-supervisor".into()).spawn(move || run(app, rx)).ok();
-        Controller { tx, status, settings, handle }
+        Controller { tx, status, settings, live, handle: Mutex::new(handle) }
     }
 
     pub fn send(&self, c: Cmd) {
         let _ = self.tx.send(c);
     }
 
-    pub fn shutdown(mut self) {
+    pub fn shutdown(&self) {
         let _ = self.tx.send(Cmd::Quit);
-        if let Some(h) = self.handle.take() {
+        if let Some(h) = self.handle.lock().unwrap().take() {
             let _ = h.join();
         }
     }
@@ -137,7 +146,7 @@ fn find_output(app: &App) -> Result<Option<String>> {
         }
         None => qm_win::find_vb_cable()?
             .map(|d| Some(d.id))
-            .ok_or_else(|| anyhow!("VB-Audio Virtual Cable is not installed (needed so other apps can use the cleaned microphone)")),
+            .ok_or_else(|| anyhow!("VB-Audio Virtual Cable is not installed")),
     }
 }
 
@@ -170,6 +179,16 @@ fn refresh_status(app: &App, session: &Session) {
     // model + capture period + ring target + render period (approximate end-to-end figure)
     let est_ms = en.delay_ms + period_ms + DEFAULT_TARGET_FILL as f64 * 1000.0 / 48_000.0 + period_ms;
     let detail = format!("{} -> {} | dropouts {}", st.input_name, st.output_name, st.underruns + st.overflows);
+    *app.live.lock().unwrap() = Live {
+        model: en.model.to_string(),
+        est_delay_ms: est_ms as f32,
+        cpu_pct: (en.load * 100.0) as f32,
+        dropouts: st.underruns + st.overflows,
+        input_peak: st.input_peak,
+        output_peak: st.output_peak,
+        input_name: st.input_name.clone(),
+        output_name: st.output_name.clone(),
+    };
     if app.bypass.load(Ordering::Relaxed) {
         app.set_status(Phase::Bypass, "BYPASS: microphone passes through unprocessed", detail);
     } else if en.model.is_empty() {
@@ -198,6 +217,7 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
                 s.stop();
             }
             *app.engine_status.lock().unwrap() = EngineStatus::default();
+            *app.live.lock().unwrap() = Live::default();
             match start_session(&app) {
                 Ok(s) => {
                     started_default = qm_win::default_input().ok().map(|d| d.id);
@@ -209,7 +229,7 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
                         log(format!("start failed: {msg}"));
                         last_error_logged = msg.clone();
                     }
-                    app.set_status(Phase::Error, format!("Not running: {msg}"), "Will keep retrying every few seconds.");
+                    app.set_status(Phase::Error, format!("Not running: {msg}"), "Install it (Get VB-Cable), then pick CABLE Output as the microphone in your calls. Retrying every few seconds.");
                     need_start = true;
                     retry_at = Some(Instant::now() + Duration::from_secs(3));
                 }

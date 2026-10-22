@@ -1,5 +1,6 @@
 //! Windows-only parts of the app: supervisor thread, tray UI, headless self-test.
 
+mod backend;
 mod controller;
 mod logging;
 mod processor;
@@ -39,6 +40,22 @@ pub fn run() {
     // `--output default` plays to the default speakers instead of VB-Cable (testing only).
     let output_override = flag_value(&args, "--output");
     let settings = Settings::load(&dir);
-    let ctl = controller::Controller::start(dir.clone(), settings, output_override);
-    tray::run(ctl, dir);
+    let ctl = std::sync::Arc::new(controller::Controller::start(dir.clone(), settings, output_override));
+
+    if args.iter().any(|a| a == "--tray-only") {
+        backend::run_tray_only(backend::WinBackend::new(ctl.clone(), dir, None));
+        ctl.shutdown();
+        return;
+    }
+
+    // Normal start: the retro main window plus the tray icon. `--minimized` (used by "Start with Windows") begins hidden.
+    let (ctl2, dir2) = (ctl.clone(), dir.clone());
+    let make: crate::ui::BackendFactory = Box::new(move |ctx| Box::new(backend::WinBackend::new(ctl2, dir2, Some(ctx.clone()))));
+    let opts = crate::ui::WindowOptions { start_hidden: args.iter().any(|a| a == "--minimized"), ..Default::default() };
+    if let Err(e) = crate::ui::run(make, opts) {
+        // No usable graphics: stay useful as a tray-only app.
+        logging::log(format!("main window failed ({e}); falling back to tray-only mode"));
+        backend::run_tray_only(backend::WinBackend::new(ctl.clone(), dir, None));
+    }
+    ctl.shutdown();
 }

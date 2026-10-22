@@ -467,3 +467,14 @@ DPDFNet gives the best noise removal on rain, barks and distant voices but costs
 **First package:** CI artifact `QuietMic-windows` (QuietMic.exe, qm.exe, qm-bench.exe, models with verified checksums, README, `selftest.bat`, `measure_this_pc.bat`). The Windows path (WASAPI capture/render, tray, calibration) has so far only been compiled and unit-tested for its platform-independent parts; it has **not been run on Windows yet by the developer**. The VM may only be used with the owner's explicit permission (see memory note).
 
 **Still needs a Windows run to do safely:** low-latency shared-mode WASAPI (IAudioClient3, saves ~15-20 ms), crossfaded model hot-swap, measuring real added latency end to end (loopback), and the enrolled-voice model for true voice separation.
+
+---
+
+## 21. Main window (Windows 95 look), Oct 22 2026
+
+`crates/qm-app/src/ui/`: an `eframe`/`egui` (glow/OpenGL) window drawn by hand in the Windows 95 style: grey `#C0C0C0` face, 1 px raised/sunken bevels, navy title bar with faux-bold caption and minimise/maximise(disabled)/close buttons, menu bar (File / Options / Help), etched group boxes, classic radio buttons and check boxes, sunken drop-down, segmented navy progress meters, sunken status bar with hover help. Preview: `docs/ui-preview.png`; run `cargo run -p qm-app -- --screenshot out.png [--state running|bypass|calibrating|error] [--open file|options|help|about]` on any OS (off Windows it runs with simulated data).
+- The window only talks to a `Backend` trait (`ui/model.rs`: `Snapshot` in, `UiCmd` out). `ui/demo.rs` simulates it; `win/backend.rs` connects the controller (audio engine), settings and the tray.
+- Tray (`win/tray.rs`) reports actions as `TrayOut`; left click shows the window, X / Alt+F4 hides it to the tray, `--minimized` starts hidden (used by "Start with Windows"). If the window cannot be created (no OpenGL) the app falls back to tray-only mode; `--tray-only` forces it.
+- Level meters come from per-block peaks measured in the capture thread (`qm-win::Stats::{input_peak, output_peak}`), shown on a -60..0 dB scale with peak-hold decay.
+- Font: egui's bundled proportional font at 12 px. A bitmap font in the style of MS Sans Serif would complete the look (needs a font file; ask the owner before adding).
+- Not verified on Windows yet: window creation under OpenGL on real hardware, tray interplay with the egui event loop (tray created inside the app-creator callback; clicks wake the loop through `Context::request_repaint`), hidden-window start.

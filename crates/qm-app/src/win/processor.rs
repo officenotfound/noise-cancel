@@ -11,7 +11,6 @@ pub struct EngineStatus {
     pub model: &'static str,
     pub delay_ms: f64,
     pub load: f64,
-    pub switches: usize,
 }
 
 /// Runs the engine on the capture thread; `bypass` passes the microphone through untouched.
@@ -36,7 +35,6 @@ impl EngineProcessor {
                 model: self.engine.model().name(),
                 delay_ms: self.engine.total_delay_ms(),
                 load: self.engine.load(),
-                switches: self.engine.switches().len(),
             };
         }
     }

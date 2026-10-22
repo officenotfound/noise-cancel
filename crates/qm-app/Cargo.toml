@@ -14,6 +14,8 @@ qm-engine = { path = "../qm-engine" }
 qm-dsp = { path = "../qm-dsp" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
+png = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 qm-win = { path = "../qm-win" }

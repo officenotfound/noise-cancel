@@ -34,7 +34,7 @@ Name: "{autoprograms}\QuietMic"; Filename: "{app}\QuietMic.exe"
 Name: "{autodesktop}\QuietMic"; Filename: "{app}\QuietMic.exe"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "QuietMic"; ValueData: """{app}\QuietMic.exe"""; Tasks: autostart; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "QuietMic"; ValueData: """{app}\QuietMic.exe"" --minimized"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
 Filename: "https://vb-audio.com/Cable/"; Description: "Open the VB-Cable download page (the virtual microphone, needed once)"; Flags: shellexec postinstall skipifsilent unchecked
