@@ -40,6 +40,7 @@ pub enum Cmd {
     SetInput(Option<String>),
     SetBypass(bool),
     SetAutostart(bool),
+    SetGuard(bool),
     Recalibrate,
     Quit,
 }
@@ -141,11 +142,14 @@ fn find_output(app: &App) -> Result<Option<String>> {
 }
 
 fn start_session(app: &App) -> Result<Session> {
-    let (preset, input_id) = {
+    let (preset, input_id, guard) = {
         let s = app.settings.lock().unwrap();
-        (s.preset, s.input_id.clone())
+        (s.preset, s.input_id.clone(), s.guard)
     };
-    let cfg = Config::from_preset(preset);
+    let mut cfg = Config::from_preset(preset);
+    if guard && cfg.guard.is_none() {
+        cfg.guard = Some(qm_engine::GuardConfig::standard());
+    }
     let model = pick_model(app, &cfg, preset)?;
     let output_id = find_output(app)?;
     log(format!("starting session: preset {} model {} input {:?} output {:?}", preset.name(), model.name(), input_id, output_id));
@@ -240,6 +244,12 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
                     }
                     Err(e) => log(format!("autostart change failed: {e}")),
                 }
+            }
+            Ok(Cmd::SetGuard(on)) => {
+                app.settings.lock().unwrap().guard = on;
+                app.save_settings();
+                need_start = true;
+                retry_at = None;
             }
             Ok(Cmd::Recalibrate) => {
                 app.settings.lock().unwrap().calibration.clear();

@@ -25,6 +25,7 @@ enum Action {
     RefreshMics,
     Bypass,
     Autostart,
+    Guard,
     Recalibrate,
     OpenReport,
     OpenLog,
@@ -89,6 +90,7 @@ struct Ui {
     mics_menu: Submenu,
     mics: Vec<(Option<String>, CheckMenuItem)>,
     autostart: CheckMenuItem,
+    guard: CheckMenuItem,
 }
 
 impl Ui {
@@ -149,6 +151,9 @@ fn build_ui(ctl: &Controller) -> (Menu, Ui) {
     let mics_menu = Submenu::new("Microphone", true);
     let _ = menu.append(&mics_menu);
 
+    let guard = CheckMenuItem::new("Extra noise guard (about +13 ms delay)", true, settings.guard, None);
+    actions.insert(guard.id().clone(), Action::Guard);
+    let _ = menu.append(&guard);
     let autostart = CheckMenuItem::new("Start with Windows", true, autostart_enabled(), None);
     actions.insert(autostart.id().clone(), Action::Autostart);
     let _ = menu.append(&PredefinedMenuItem::separator());
@@ -166,7 +171,7 @@ fn build_ui(ctl: &Controller) -> (Menu, Ui) {
     let _ = menu.append(&PredefinedMenuItem::separator());
     simple("Quit QuietMic", Action::Quit);
 
-    let mut ui = Ui { actions, status, detail, bypass, presets, mics_menu, mics: Vec::new(), autostart };
+    let mut ui = Ui { actions, status, detail, bypass, presets, mics_menu, mics: Vec::new(), autostart, guard };
     ui.rebuild_mics(&settings.input_id);
     (menu, ui)
 }
@@ -218,6 +223,7 @@ pub fn run(ctl: Controller, dir: PathBuf) {
                 }
                 Action::Bypass => ctl.send(Cmd::SetBypass(ui.bypass.is_checked())),
                 Action::Autostart => ctl.send(Cmd::SetAutostart(ui.autostart.is_checked())),
+                Action::Guard => ctl.send(Cmd::SetGuard(ui.guard.is_checked())),
                 Action::Recalibrate => ctl.send(Cmd::Recalibrate),
                 Action::OpenReport => notepad(&dir.join("performance_report.txt")),
                 Action::OpenLog => notepad(&logging::path(&dir)),

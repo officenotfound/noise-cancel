@@ -45,6 +45,9 @@ enum Cmd {
         /// Override the gate threshold (dB below the learned speech level).
         #[arg(long)]
         gate_threshold: Option<f32>,
+        /// Enable the noise guard with this detector model (e.g. fe-b).
+        #[arg(long)]
+        guard: Option<ModelId>,
         #[arg(long)]
         gate_ratio: Option<f32>,
         #[arg(long)]
@@ -97,13 +100,16 @@ fn main() -> Result<()> {
             }
             println!("\npick for '{}': {} (p99 <= 40% of hop, mean <= 25%)", preset.name(), pick(&c.ladder, &t, 0.4, 0.25).name());
         }
-        Cmd::Process { preset, input, output, model, block, no_gate, gate_threshold, gate_ratio, gate_max, gate_hold, keep_delay } => {
+        Cmd::Process { preset, input, output, model, block, no_gate, gate_threshold, guard, gate_ratio, gate_max, gate_hold, keep_delay } => {
             let mut cfg = Config::from_preset(preset);
             cfg.block = block;
             cfg.auto_govern = false;
             cfg.gate.enabled &= !no_gate;
             if let Some(t) = gate_threshold {
                 cfg.gate.threshold_below_speech_db = t;
+            }
+            if let Some(m) = guard {
+                cfg.guard = Some(qm_engine::GuardConfig { model: m, ..qm_engine::GuardConfig::standard() });
             }
             if let Some(v) = gate_ratio {
                 cfg.gate.ratio = v;

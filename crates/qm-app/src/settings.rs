@@ -15,13 +15,15 @@ pub struct Settings {
     pub input_id: Option<String>,
     pub bypass: bool,
     pub autostart: bool,
+    /// Extra noise guard on top of the preset's own default.
+    pub guard: bool,
     /// Calibration results, keyed by "<cpu> | <preset>".
     pub calibration: BTreeMap<String, ModelId>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { preset: Preset::Auto, input_id: None, bypass: false, autostart: false, calibration: BTreeMap::new() }
+        Self { preset: Preset::Auto, input_id: None, bypass: false, autostart: false, guard: false, calibration: BTreeMap::new() }
     }
 }
 

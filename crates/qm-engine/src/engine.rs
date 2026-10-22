@@ -5,6 +5,7 @@ use qm_dsp::SAMPLE_RATE;
 
 use crate::config::Config;
 use crate::gate::ResidualGate;
+use crate::guard::Guard;
 use crate::governor::{Action, Governor};
 use crate::limiter::Limiter;
 use crate::models::ModelId;
@@ -17,6 +18,7 @@ pub struct Engine {
     tier: usize,
     reframer: Reframer,
     gate: ResidualGate,
+    guard: Option<Guard>,
     limiter: Limiter,
     governor: Governor,
     switches: Vec<(usize, ModelId)>,
@@ -31,8 +33,12 @@ impl Engine {
         let tier = start.and_then(|m| cfg.ladder.iter().position(|x| *x == m)).unwrap_or(0);
         let reframer = Reframer::new(cfg.ladder[tier].build(&models_dir, cfg.atten_lim_db)?, cfg.block);
         let gate = ResidualGate::new(cfg.gate.clone());
+        let guard = match &cfg.guard {
+            Some(g) => Some(Guard::new(g.clone(), &models_dir, cfg.block, reframer.total_delay())?),
+            None => None,
+        };
         let limiter = Limiter::new(cfg.limiter_ceiling * 0.8, cfg.limiter_ceiling);
-        Ok(Self { cfg, models_dir, tier, reframer, gate, limiter, governor: Governor::new(), switches: Vec::new(), load: 0.0 })
+        Ok(Self { cfg, models_dir, tier, reframer, gate, guard, limiter, governor: Governor::new(), switches: Vec::new(), load: 0.0 })
     }
 
     pub fn model(&self) -> ModelId {
@@ -41,7 +47,7 @@ impl Engine {
 
     /// Total input-to-output delay in samples: model + re-framing + gate look-ahead.
     pub fn total_delay(&self) -> usize {
-        self.reframer.total_delay() + self.gate.lookahead_samples()
+        self.reframer.total_delay() + self.gate.lookahead_samples() + self.guard.as_ref().map_or(0, |g| g.extra_delay())
     }
 
     pub fn total_delay_ms(&self) -> f64 {
@@ -65,6 +71,9 @@ impl Engine {
     /// Process one block (any size). `output.len() == input.len()`.
     pub fn process(&mut self, input: &[f32], output: &mut [f32]) -> Result<()> {
         let timings = self.reframer.process(input, output)?;
+        if let Some(g) = &mut self.guard {
+            g.process(input, output)?;
+        }
         self.gate.process(output);
         for s in output.iter_mut() {
             *s = self.limiter.process(*s);

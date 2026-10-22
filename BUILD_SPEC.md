@@ -455,3 +455,15 @@ DPDFNet gives the best noise removal on rain, barks and distant voices but costs
  b. Give `max-voice-separation` a genuine differentiator (a tighter model for far voices, or the enrolled-voice model); today it duplicates `balanced`.
  c. Windows audio layer, tray UI, crossfaded model switching (not built).
  d. Collect the owner's real recordings; synthetic steel-rain and TTS yelling are stand-ins.
+
+---
+
+## 20. Noise guard, installer, first Windows package (Oct 22 2026)
+
+**Noise guard** (`qm-engine::guard`, `scripts/eval_presets.py --guard-eval`, `results/PRESETS_guard.md`): a second cheap model (FastEnhancer-B, ~4% of a core) listens to the same microphone; when its output is silent, the main output is attenuated 30 dB (hold 300 ms, 2.5 ms look-ahead, both paths time-aligned). Measured effect: share of 10 ms frames where leaked noise stays above -60 dBFS drops 2-5x (DFN3-LL: rain 30% to 2%, steel-roof 64% to 13%, all-at-once 69% to 20%; DPDFNet-2: horns 79 dB to silence, steel 53% to 11%). Costs: +13 ms delay on low-latency presets (the guard model's 20.7 ms path delays the 10 ms main path), clean-voice STOI 0.998 to 0.992 (SI-SDR 31.8 to 23.4 dB), and 1-6 dB less mixed-speech SI-SDR gain. It does not fix barks (7.6 to 9.5 dB) or distant yelling (0.4 to 3.4 dB). So: default **on** only for `max-noise-removal` and `max-voice-separation` (which previously duplicated `balanced`), tray toggle for the rest.
+
+**Installer:** `scripts/installer/QuietMic.iss` (Inno Setup, per-user, optional autostart/desktop shortcut) built by CI as artifact `QuietMic-Setup`. VB-Cable is not bundled (separate free driver, link offered at the end of setup).
+
+**First package:** CI artifact `QuietMic-windows` (QuietMic.exe, qm.exe, qm-bench.exe, models with verified checksums, README, `selftest.bat`, `measure_this_pc.bat`). The Windows path (WASAPI capture/render, tray, calibration) has so far only been compiled and unit-tested for its platform-independent parts; it has **not been run on Windows yet by the developer**. The VM may only be used with the owner's explicit permission (see memory note).
+
+**Still needs a Windows run to do safely:** low-latency shared-mode WASAPI (IAudioClient3, saves ~15-20 ms), crossfaded model hot-swap, measuring real added latency end to end (loopback), and the enrolled-voice model for true voice separation.

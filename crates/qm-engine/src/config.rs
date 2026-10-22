@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::guard::GuardConfig;
 use crate::models::ModelId;
 
 /// User-facing presets. Each one is a *ladder* of models (heaviest first, the governor walks down it when the
@@ -70,6 +71,9 @@ pub struct Config {
     /// DeepFilterNet attenuation limit (dB); None = unlimited.
     pub atten_lim_db: Option<f32>,
     pub gate: GateConfig,
+    /// Optional noise guard (second cheap model that mutes the output when nobody is speaking).
+    #[serde(default)]
+    pub guard: Option<GuardConfig>,
     /// Linear output ceiling.
     pub limiter_ceiling: f32,
     /// Audio callback size in samples (10 ms = 480 at 48 kHz).
@@ -103,6 +107,9 @@ impl Config {
             Preset::MaxVoiceSeparation => (vec![FeM, Dfn3Ll, FeS, FeB, FeT, Rnnoise], gentle()),
             Preset::Light => (vec![FeB, FeT, Rnnoise], gentle()),
         };
-        Config { preset, ladder, atten_lim_db: None, gate: g, limiter_ceiling: 0.89, block: 480, auto_govern: true }
+        // The guard cuts leaked noise 2-5x (scripts/eval_presets.py --guard-eval) but costs delay and a little voice
+        // fidelity, so only the two 'max' presets enable it by default; everyone can toggle it.
+        let guard = matches!(preset, Preset::MaxNoiseRemoval | Preset::MaxVoiceSeparation).then(GuardConfig::standard);
+        Config { preset, ladder, atten_lim_db: None, gate: g, guard, limiter_ceiling: 0.89, block: 480, auto_govern: true }
     }
 }

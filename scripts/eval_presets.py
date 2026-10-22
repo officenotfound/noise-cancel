@@ -10,7 +10,7 @@ Run via .venv/bin/python scripts/eval_presets.py ; writes results/PRESETS.md and
 """
 from __future__ import annotations
 
-import json, re, subprocess
+import argparse, json, re, subprocess
 from pathlib import Path
 
 import numpy as np
@@ -36,12 +36,14 @@ def wr(p, x):
     wavfile.write(p, SR, (np.clip(x, -1, 1) * 32767).astype(np.int16))
 
 
-def run(preset, src, dst, model=None, gate=True):
+def run(preset, src, dst, model=None, gate=True, guard=None):
     cmd = [str(QM), "--models-dir", str(ROOT / "models"), "process", "--preset", preset, str(src), str(dst)]
     if model:
         cmd += ["--model", model]
     if not gate:
         cmd += ["--no-gate"]
+    if guard:
+        cmd += ["--guard", guard]
     r = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return float(re.search(r"total delay ([\d.]+) ms", r.stderr).group(1))
 
@@ -64,6 +66,10 @@ def frames_db(x):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--guard-eval", action="store_true", help="compare presets with and without the fe-b noise guard")
+    args = ap.parse_args()
+    out_name = "PRESETS_guard" if args.guard_eval else "PRESETS"
     WORK.mkdir(parents=True, exist_ok=True)
     RES.mkdir(exist_ok=True)
     for cat in CATS:
@@ -71,18 +77,20 @@ def main():
         noisy = rd(SET / f"{cat}_snr0.wav")
         wr(WORK / f"{cat}.noise_only.wav", np.concatenate([clean[: LEARN_S * SR], (noisy - clean)[: 20 * SR]]))
     rows = []
-    variants = [(p, True) for p in PRESETS] + [("low-latency", False)]
-    for preset, gate in variants:
+    variants = [(p, True, None) for p in PRESETS] + [("low-latency", False, None)]
+    if args.guard_eval:
+        variants = [(p, True, g) for p in ("low-latency", "balanced", "max-noise-removal") for g in (None, "fe-b")]
+    for preset, gate, guard in variants:
         model = pick(preset)
-        row = {"preset": preset + ("" if gate else " (gate off)"), "model": model, "leak": {}, "audible": {}, "mixed_gain": {}, "mixed_stoi": {}}
+        row = {"preset": preset + ("" if gate else " (gate off)") + (f" + guard {guard}" if guard else ""), "model": model, "leak": {}, "audible": {}, "mixed_gain": {}, "mixed_stoi": {}}
         for cat in CATS:
             nz_in = rd(WORK / f"{cat}.noise_only.wav")
-            delay = run(preset, WORK / f"{cat}.noise_only.wav", WORK / "out.wav", model, gate)
+            delay = run(preset, WORK / f"{cat}.noise_only.wav", WORK / "out.wav", model, gate, guard)
             out = rd(WORK / "out.wav")
             a, b = nz_in[LEARN_S * SR + SR // 2:], out[LEARN_S * SR + SR // 2: len(nz_in)]
             row["leak"][cat] = float(10 * np.log10(((a ** 2).sum() + 1e-12) / ((b ** 2).sum() + 1e-12)))
             row["audible"][cat] = float((frames_db(b) > -60).mean() * 100)
-            run(preset, SET / f"{cat}_snr0.wav", WORK / "mix.wav", model, gate)
+            run(preset, SET / f"{cat}_snr0.wav", WORK / "mix.wav", model, gate, guard)
             mix, clean = rd(WORK / "mix.wav"), rd(SET / f"{cat}.clean.wav")
             noisy = rd(SET / f"{cat}_snr0.wav")
             n = min(len(mix), len(clean))
@@ -90,7 +98,7 @@ def main():
             row["mixed_stoi"][cat] = float(stoi(clean[:n], mix[:n], SR))
         row["delay_ms"] = delay
         clean = rd(SET / "rain.clean.wav")
-        run(preset, SET / "rain.clean.wav", WORK / "cl.wav", model, gate)
+        run(preset, SET / "rain.clean.wav", WORK / "cl.wav", model, gate, guard)
         o = rd(WORK / "cl.wav")
         n = min(len(o), len(clean))
         row["clean_stoi"] = float(stoi(clean[:n], o[:n], SR))
@@ -99,7 +107,7 @@ def main():
         rows.append(row)
         print(f"{row['preset']:<34} {model:<8} delay {delay:5.1f} ms | leak dB " + " ".join(f"{row['leak'][c]:5.1f}" for c in CATS)
               + f" | voice STOI {row['clean_stoi']:.3f} level {row['clean_level_change_db']:+.1f} dB", flush=True)
-    (RES / "presets.json").write_text(json.dumps(rows, indent=1))
+    (RES / f"{out_name.lower()}.json").write_text(json.dumps(rows, indent=1))
     L = ["# Preset evaluation (qm engine, M1 Pro, 480-sample callbacks)", "",
          "Model = what calibration picks on this machine. **Noise-only attenuation** (dB, higher = less gets through): "
          "20 s of the noise alone at the level it had in the 0 dB mix, after 10 s of the user's voice so the gate has learned their level. "
@@ -116,7 +124,7 @@ def main():
     L += ["", "## Your voice with no noise (damage check)", "", "| preset | STOI | SI-SDR dB | level change dB |", "|---|---|---|---|"]
     for r in rows:
         L.append(f"| {r['preset']} | {r['clean_stoi']:.3f} | {r['clean_sisdr']:.1f} | {r['clean_level_change_db']:+.1f} |")
-    (RES / "PRESETS.md").write_text("\n".join(L) + "\n")
+    (RES / f"{out_name}.md").write_text("\n".join(L) + "\n")
 
 
 if __name__ == "__main__":

@@ -24,6 +24,11 @@ Presets (right-click the tray icon > Preset)
   Max voice separation tighter on other / distant voices
   Light                for old or slow PCs
 
+Extra noise guard (tray menu)
+  A second small model that mutes the output when nobody is speaking. It cuts leaked rain / barks / horns a lot
+  but adds about 13 ms of delay and can slightly change soft speech. It is on by default only for the two 'Max'
+  presets; tick it to use it with any preset.
+
 Please test and report
   - Run measure_this_pc.bat and send back measure_this_pc.txt (speed numbers for this CPU).
   - Run selftest.bat to check the microphone path (no virtual cable needed). It writes selftest.txt and two WAV

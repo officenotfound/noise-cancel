@@ -5,10 +5,12 @@ pub mod config;
 pub mod engine;
 pub mod gate;
 pub mod governor;
+pub mod guard;
 pub mod limiter;
 pub mod models;
 pub mod reframer;
 
 pub use config::{Config, GateConfig, Preset};
+pub use guard::GuardConfig;
 pub use engine::Engine;
 pub use models::ModelId;
