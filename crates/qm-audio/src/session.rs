@@ -238,15 +238,17 @@ fn render_main(sh: &Shared, cfg: &SessionConfig, cons: rtrb::Consumer<f32>) -> R
         out_f32.clear();
         out_f32.resize(frames, 0.0);
 
+        // The cushion must cover at least one and a half device periods, or the ring runs dry between bursts.
+        let target = cfg.target_fill.max(frames + frames / 2);
         if waiting_to_prime {
             // After start or an underrun, hold silence until the ring has refilled to target (avoids repeated crackle).
-            if fill >= cfg.target_fill {
+            if fill >= target {
                 waiting_to_prime = false;
                 resampler.reset();
             }
         }
         if !waiting_to_prime {
-            let real = resampler.process(&mut out_f32, &mut src, ratio_for_fill(fill, cfg.target_fill));
+            let real = resampler.process(&mut out_f32, &mut src, ratio_for_fill(fill, target));
             if real < frames {
                 sh.underruns.fetch_add(1, Ordering::Relaxed);
                 waiting_to_prime = true;

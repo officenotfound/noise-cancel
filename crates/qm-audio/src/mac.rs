@@ -183,14 +183,17 @@ fn run_session(sh: &Arc<Shared>, cfg: &SessionConfig, factory: ProcessorFactory)
                     let frames = data.len() / out_ch.max(1);
                     let fill = src.available();
                     sh_out.ring_fill.store(fill, Ordering::Relaxed);
+                    // The cushion must cover at least one and a half device callbacks (in 48 kHz samples), or the
+                    // ring runs dry between processing bursts and the output crackles.
+                    let target = target_fill.max((frames as f64 * base_ratio * 1.5) as usize);
                     mono.clear();
                     mono.resize(frames, 0.0);
-                    if priming && fill >= target_fill {
+                    if priming && fill >= target {
                         priming = false;
                         resampler.reset();
                     }
                     if !priming {
-                        let real = resampler.process(&mut mono, &mut src, base_ratio * ratio_for_fill(fill, target_fill));
+                        let real = resampler.process(&mut mono, &mut src, base_ratio * ratio_for_fill(fill, target));
                         if real < frames {
                             sh_out.underruns.fetch_add(1, Ordering::Relaxed);
                             priming = true;
