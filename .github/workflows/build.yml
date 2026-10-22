@@ -1,6 +1,5 @@
 name: build
 on:
-  push:
   workflow_dispatch:
 env:
   # Faster CI builds: tract compiles slowly with fat LTO, and it gains little there.
