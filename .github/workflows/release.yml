@@ -22,6 +22,8 @@ jobs:
           sh scripts/fetch_models.sh
           sh scripts/fetch_models_fastenhancer.sh
           sh scripts/fetch_models_dpdfnet.sh
+      - name: Build the uninstaller (goes into the install folder)
+        run: cargo build --release -p qm-installer --bin QuietMic-Uninstall
       - name: Package
         shell: bash
         run: sh scripts/package_windows.sh
@@ -32,6 +34,7 @@ jobs:
           cp target/release/QuietMic-Setup.exe dist/QuietMic-Setup.exe
           ./dist/QuietMic-Setup.exe --silent --dir "$RUNNER_TEMP/qm-smoke"
           test -f "$RUNNER_TEMP/qm-smoke/QuietMic.exe"
+          (cd dist && sha256sum QuietMic-Setup.exe > SHA256SUMS.txt && cat SHA256SUMS.txt)
           ls -la dist
       - name: Build MSI
         shell: bash
@@ -46,4 +49,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          gh release create "$GITHUB_REF_NAME" dist/QuietMic-Setup.exe "dist/QuietMic-$VERSION-x64.msi" --title "QuietMic $VERSION" --notes "QuietMic-Setup.exe is the retro scene-style installer with chiptune; the .msi is the plain installer (both per-user, no admin). Install the free VB-Cable virtual audio driver separately: https://vb-audio.com/Cable/. First release; not yet tested on a live Windows machine."
+          gh release create "$GITHUB_REF_NAME" dist/QuietMic-Setup.exe dist/SHA256SUMS.txt "dist/QuietMic-$VERSION-x64.msi" --title "QuietMic $VERSION" --notes "QuietMic-Setup.exe is the retro scene-style installer with chiptune; the .msi is the plain installer (both per-user, no admin). Install the free VB-Cable virtual audio driver separately: https://vb-audio.com/Cable/. First release; not yet tested on a live Windows machine."

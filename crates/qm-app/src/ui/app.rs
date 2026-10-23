@@ -105,6 +105,7 @@ impl RetroApp {
                 vec![
                     MenuEntry::check("Extra noise guard (+13 ms)", self.snap.guard),
                     MenuEntry::check(crate::app::os::AUTOSTART_LABEL, self.snap.autostart),
+                    MenuEntry::check("Check for updates online", self.snap.auto_update),
                     MenuEntry::item("Refresh microphone list").sep(),
                     MenuEntry::item("Re-measure this PC"),
                 ],
@@ -128,7 +129,8 @@ impl RetroApp {
             (0, _) => self.cmd(UiCmd::Quit),
             (1, 0) => self.cmd(UiCmd::SetGuard(!self.snap.guard)),
             (1, 1) => self.cmd(UiCmd::SetAutostart(!self.snap.autostart)),
-            (1, 2) => self.cmd(UiCmd::RefreshMics),
+            (1, 2) => self.cmd(UiCmd::SetAutoUpdate(!self.snap.auto_update)),
+            (1, 3) => self.cmd(UiCmd::RefreshMics),
             (1, _) => self.cmd(UiCmd::Recalibrate),
             (2, 0) => self.cmd(UiCmd::OpenReport),
             (2, 1) => self.cmd(UiCmd::OpenLog),
@@ -149,6 +151,12 @@ impl RetroApp {
             paragraph(ui, &self.snap.headline, DARK);
             if !self.snap.detail.is_empty() {
                 paragraph(ui, &self.snap.detail, egui::Color32::from_rgb(64, 64, 64));
+            }
+            if let Some(v) = self.snap.update_ready.clone() {
+                if button(ui, &format!("Restart to update to {v}"), true, false, 200.0).clicked() {
+                    self.cmd(UiCmd::ApplyUpdate);
+                }
+                hover_help = Some("A verified update is downloaded. QuietMic restarts, updates itself and comes back in the tray.".into());
             }
             ui.add_space(2.0);
             // Meters only mean something while audio is flowing.

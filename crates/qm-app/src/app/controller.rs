@@ -47,6 +47,7 @@ pub enum Cmd {
     SetInput(Option<String>),
     SetBypass(bool),
     SetAutostart(bool),
+    SetAutoUpdate(bool),
     SetGuard(bool),
     Recalibrate,
     Quit,
@@ -276,6 +277,13 @@ fn run(app: App, rx: mpsc::Receiver<Cmd>) {
                         app.save_settings();
                     }
                     Err(e) => log(format!("autostart change failed: {e}")),
+                }
+            }
+            Ok(Cmd::SetAutoUpdate(on)) => {
+                app.settings.lock().unwrap().auto_update = on;
+                app.save_settings();
+                if !on {
+                    super::update::clear(&app.dir);
                 }
             }
             Ok(Cmd::SetGuard(on)) => {

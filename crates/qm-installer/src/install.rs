@@ -26,6 +26,10 @@ pub struct Options {
     pub autostart: bool,
     pub launch: bool,
     pub vbcable: bool,
+    /// Some(on) records the user's choice in settings.toml; None leaves the setting alone (updates).
+    pub auto_update: Option<bool>,
+    /// Unpack next to the install folder and swap it in at the end, so a failure never leaves a half-updated app.
+    pub staged: bool,
 }
 
 pub fn default_dir() -> PathBuf {
@@ -51,24 +55,33 @@ pub fn run(opts: Options, progress: Arc<Mutex<Progress>>) {
         }
         let total: u64 = (0..zip.len()).filter_map(|i| zip.by_index(i).ok().map(|f| f.size())).sum::<u64>().max(1);
         let mut done = 0u64;
-        std::fs::create_dir_all(&opts.dir)?;
+        let target = if opts.staged { opts.dir.with_extension("update") } else { opts.dir.clone() };
+        let _ = std::fs::remove_dir_all(&target);
+        std::fs::create_dir_all(&target)?;
         for i in 0..zip.len() {
             let mut f = zip.by_index(i)?;
             let Some(rel) = f.enclosed_name() else { continue };
-            let target = opts.dir.join(&rel);
+            let dest = target.join(&rel);
             if f.is_dir() {
-                std::fs::create_dir_all(&target)?;
+                std::fs::create_dir_all(&dest)?;
                 continue;
             }
-            if let Some(parent) = target.parent() {
+            if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             progress.lock().unwrap().current = rel.to_string_lossy().into_owned();
             let mut buf = Vec::with_capacity(f.size() as usize);
             f.read_to_end(&mut buf)?;
-            std::fs::write(&target, &buf)?;
+            std::fs::write(&dest, &buf)?;
             done += buf.len() as u64;
             progress.lock().unwrap().fraction = done as f32 / total as f32 * 0.9;
+        }
+        if opts.staged {
+            progress.lock().unwrap().current = "swapping in the new version...".into();
+            swap_in(&target, &opts.dir)?;
+        }
+        if let Some(on) = opts.auto_update {
+            set_auto_update(on);
         }
         progress.lock().unwrap().current = "registering shortcuts...".into();
         integrate(&opts)?;
@@ -99,6 +112,10 @@ fn integrate(_opts: &Options) -> Result<()> {
 #[cfg(windows)]
 fn integrate(opts: &Options) -> Result<()> {
     use std::process::Command;
+    // tests use their own folder and must not touch the shortcuts and registry entries of a real install
+    if std::env::var_os("QM_NO_INTEGRATION").is_some() {
+        return Ok(());
+    }
     let exe = opts.dir.join("QuietMic.exe");
     let start_menu = std::env::var("APPDATA")? + r"\Microsoft\Windows\Start Menu\Programs\QuietMic.lnk";
     let desktop = std::env::var("USERPROFILE")? + r"\Desktop\QuietMic.lnk";
@@ -122,11 +139,11 @@ fn integrate(opts: &Options) -> Result<()> {
         let _ = Command::new("reg").args(args).creation_flags(hide).status();
     };
     let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuietMic";
-    let uninstall = opts.dir.join("Uninstall.bat");
+    let uninstall = opts.dir.join("Uninstall.exe");
     let dir = opts.dir.display().to_string();
     for (name, val) in [
         ("DisplayName", "QuietMic".to_string()),
-        ("DisplayVersion", "0.1.0".to_string()),
+        ("DisplayVersion", env!("CARGO_PKG_VERSION").to_string()),
         ("Publisher", "QuietMic".to_string()),
         ("InstallLocation", dir.clone()),
         ("DisplayIcon", exe.display().to_string()),
@@ -137,14 +154,6 @@ fn integrate(opts: &Options) -> Result<()> {
     if opts.autostart {
         reg(&["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "QuietMic", "/t", "REG_SZ", "/d", &format!("\"{}\" --minimized", exe.display()), "/f"]);
     }
-    std::fs::write(
-        &uninstall,
-        format!(
-            "@echo off\r\ntaskkill /im QuietMic.exe /f >nul 2>&1\r\ndel \"{start_menu}\" \"{desktop}\" >nul 2>&1\r\n\
-             reg delete \"{key}\" /f >nul 2>&1\r\nreg delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v QuietMic /f >nul 2>&1\r\n\
-             echo QuietMic removed. Settings stay in %APPDATA%\\QuietMic.\r\n(goto) 2>nul & rmdir /s /q \"{dir}\"\r\n"
-        ),
-    )?;
     Ok(())
 }
 
@@ -220,4 +229,65 @@ fn install_vbcable() -> Result<()> {
 #[cfg(not(windows))]
 fn install_vbcable() -> Result<()> {
     Err(anyhow!("Windows only"))
+}
+
+/// Replace `dir` with the freshly unpacked `new`; the old version is put back if the swap fails.
+fn swap_in(new: &Path, dir: &Path) -> Result<()> {
+    let old = dir.with_extension("old");
+    let _ = std::fs::remove_dir_all(&old);
+    let had_old = dir.exists();
+    if had_old {
+        std::fs::rename(dir, &old).map_err(|e| anyhow!("could not move the old version aside ({e}); is QuietMic still running?"))?;
+    }
+    if let Err(e) = std::fs::rename(new, dir) {
+        if had_old {
+            let _ = std::fs::rename(&old, dir);
+        }
+        return Err(anyhow!("could not put the new version in place ({e})"));
+    }
+    let _ = std::fs::remove_dir_all(&old);
+    Ok(())
+}
+
+/// Record the auto-update choice in QuietMic's settings file (created if missing; other settings are kept).
+fn set_auto_update(on: bool) {
+    #[cfg(windows)]
+    {
+        let Some(appdata) = std::env::var_os("APPDATA") else { return };
+        let dir = PathBuf::from(appdata).join("QuietMic");
+        let path = dir.join("settings.toml");
+        let _ = std::fs::create_dir_all(&dir);
+        let old = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut text: String = old.lines().filter(|l| !l.trim_start().starts_with("auto_update")).map(|l| format!("{l}\n")).collect();
+        // top-level keys must come before any [table] in TOML
+        text.insert_str(0, &format!("auto_update = {on}\n"));
+        let _ = std::fs::write(&path, text);
+    }
+    #[cfg(not(windows))]
+    let _ = on;
+}
+
+/// `--update`: wait for the app to exit, swap in the new version, start it again minimised. Settings (in AppData) stay.
+pub fn update_in_place(dir: &Path) -> bool {
+    stop_app();
+    let progress = Arc::new(Mutex::new(Progress::default()));
+    run(Options { dir: dir.to_path_buf(), desktop_icon: false, autostart: false, launch: false, vbcable: false, auto_update: None, staged: true }, progress.clone());
+    let ok = progress.lock().unwrap().done;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new(dir.join("QuietMic.exe")).arg("--minimized").current_dir(dir).creation_flags(0x0800_0008).spawn();
+    }
+    ok
+}
+
+fn stop_app() {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // give the app a moment to exit by itself, then make sure
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let _ = std::process::Command::new("taskkill").args(["/im", "QuietMic.exe", "/f"]).creation_flags(0x0800_0000).status();
+        std::thread::sleep(std::time::Duration::from_millis(700));
+    }
 }

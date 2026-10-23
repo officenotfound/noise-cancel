@@ -69,6 +69,8 @@ pub struct Tray {
     presets: Vec<(Preset, CheckMenuItem)>,
     guard: CheckMenuItem,
     autostart: CheckMenuItem,
+    auto_update: CheckMenuItem,
+    update_item: MenuItem,
     mics_menu: Submenu,
     mics: Vec<(Option<String>, CheckMenuItem)>,
     mic_list: Vec<(Option<String>, String)>,
@@ -132,6 +134,12 @@ impl Tray {
         actions.insert(autostart.id().clone(), Action::Cmd(UiCmd::SetAutostart(!snap.autostart)));
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&autostart);
+        let auto_update = CheckMenuItem::new("Check for updates online", true, snap.auto_update, None);
+        actions.insert(auto_update.id().clone(), Action::Cmd(UiCmd::SetAutoUpdate(!snap.auto_update)));
+        let _ = menu.append(&auto_update);
+        let update_item = MenuItem::new("Restart to install update", false, None);
+        actions.insert(update_item.id().clone(), Action::Cmd(UiCmd::ApplyUpdate));
+        let _ = menu.append(&update_item);
 
         let mut simple = |text: &str, a: Action| {
             let item = MenuItem::new(text, true, None);
@@ -168,6 +176,8 @@ impl Tray {
             presets,
             guard,
             autostart,
+            auto_update,
+            update_item,
             mics_menu,
             mics: Vec::new(),
             mic_list: Vec::new(),
@@ -211,6 +221,17 @@ impl Tray {
         self.bypass.set_checked(snap.bypass);
         self.guard.set_checked(snap.guard);
         self.autostart.set_checked(snap.autostart);
+        self.auto_update.set_checked(snap.auto_update);
+        match &snap.update_ready {
+            Some(v) => {
+                self.update_item.set_text(format!("Restart to update to {v}"));
+                self.update_item.set_enabled(true);
+            }
+            None => {
+                self.update_item.set_text("Restart to install update");
+                self.update_item.set_enabled(false);
+            }
+        }
         for (p, item) in &self.presets {
             item.set_checked(*p == snap.preset);
         }
@@ -224,6 +245,7 @@ impl Tray {
         self.actions.insert(self.bypass.id().clone(), Action::Cmd(UiCmd::SetBypass(!snap.bypass)));
         self.actions.insert(self.guard.id().clone(), Action::Cmd(UiCmd::SetGuard(!snap.guard)));
         self.actions.insert(self.autostart.id().clone(), Action::Cmd(UiCmd::SetAutostart(!snap.autostart)));
+        self.actions.insert(self.auto_update.id().clone(), Action::Cmd(UiCmd::SetAutoUpdate(!snap.auto_update)));
 
         if self.last_phase != Some(snap.phase) {
             self.last_phase = Some(snap.phase);

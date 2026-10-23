@@ -54,6 +54,10 @@ pub struct Snapshot {
     pub bypass: bool,
     pub guard: bool,
     pub autostart: bool,
+    /// Optional update checks (off by default; off means no network use at all).
+    pub auto_update: bool,
+    /// Version of a downloaded, verified update waiting to be installed.
+    pub update_ready: Option<String>,
     pub mics: Vec<(Option<String>, String)>,
     pub selected_mic: Option<String>,
     pub vb_cable_found: bool,
@@ -69,6 +73,8 @@ pub enum UiCmd {
     SetBypass(bool),
     SetGuard(bool),
     SetAutostart(bool),
+    SetAutoUpdate(bool),
+    ApplyUpdate,
     RefreshMics,
     Recalibrate,
     OpenReport,

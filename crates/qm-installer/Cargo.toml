@@ -9,6 +9,10 @@ build = "build.rs"
 name = "QuietMic-Setup"
 path = "src/main.rs"
 
+[[bin]]
+name = "QuietMic-Uninstall"
+path = "src/uninstaller.rs"
+
 [dependencies]
 anyhow = "1"
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }

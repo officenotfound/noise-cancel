@@ -22,6 +22,8 @@ jobs:
           sh scripts/fetch_models.sh
           sh scripts/fetch_models_fastenhancer.sh
           sh scripts/fetch_models_dpdfnet.sh
+      - name: Build the uninstaller (goes into the install folder)
+        run: cargo build --release -p qm-installer --bin QuietMic-Uninstall
       - name: Package
         shell: bash
         run: sh scripts/package_windows.sh

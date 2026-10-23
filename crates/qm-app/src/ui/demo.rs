@@ -38,6 +38,8 @@ impl DemoBackend {
             bypass: phase == Phase::Bypass,
             guard: false,
             autostart: false,
+            auto_update: false,
+            update_ready: None,
             mics: vec![
                 (None, crate::app::os::DEFAULT_MIC_LABEL.into()),
                 (Some("mic1".into()), "Headset Microphone (USB Audio)".into()),
@@ -123,6 +125,7 @@ impl Backend for DemoBackend {
             }
             UiCmd::SetGuard(g) => self.snap.guard = g,
             UiCmd::SetAutostart(a) => self.snap.autostart = a,
+            UiCmd::SetAutoUpdate(a) => self.snap.auto_update = a,
             UiCmd::RecordToggle => {
                 if let Some(t) = self.rec_started.take() {
                     self.snap.rec = RecState { has_recording: true, total_secs: t.elapsed().as_secs_f32(), play_original: self.snap.rec.play_original, ..Default::default() };

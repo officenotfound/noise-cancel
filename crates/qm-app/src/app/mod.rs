@@ -7,6 +7,7 @@ pub mod os;
 mod processor;
 mod selftest;
 mod tray;
+mod update;
 
 use crate::settings::Settings;
 
@@ -21,7 +22,7 @@ pub fn run() {
     let has = |f: &str| args.iter().any(|a| a == f);
     let dir = os::data_dir();
     let _ = std::fs::create_dir_all(&dir);
-    logging::init(&dir);
+    logging::init(&dir, has("--log") || std::env::var_os("QM_LOG").is_some());
     // The app has no console on Windows; make sure a crash leaves a trace in the log file.
     std::panic::set_hook(Box::new(|info| logging::log(format!("PANIC: {info}"))));
     // One instance at a time: a second start asks the running one to show its window and exits. Design previews
@@ -59,7 +60,16 @@ pub fn run() {
     // `--output default` plays to the default speakers instead of the virtual cable (testing only).
     let output_override = flag_value(&args, "--output");
     let settings = Settings::load(&dir);
+    // Optional auto-update: a verified update downloaded earlier is installed now, before the audio starts.
+    if settings.auto_update && update::apply_pending(&dir) {
+        return;
+    }
     let ctl = std::sync::Arc::new(controller::Controller::start(dir.clone(), settings, output_override));
+
+    {
+        let (settings_handle, dir_for_updates) = (ctl.settings.clone(), dir.clone());
+        update::start(dir_for_updates, move || settings_handle.lock().map(|s| s.auto_update).unwrap_or(false));
+    }
 
     #[cfg(windows)]
     if has("--tray-only") {

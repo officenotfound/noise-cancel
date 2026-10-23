@@ -93,6 +93,8 @@ impl AppBackend {
             bypass: settings.bypass,
             guard: settings.guard,
             autostart: settings.autostart,
+            auto_update: settings.auto_update,
+            update_ready: if settings.auto_update { super::update::ready_version() } else { None },
             mics: self.mics.clone(),
             selected_mic: settings.input_id,
             vb_cable_found: self.vb_found,
@@ -186,6 +188,13 @@ impl Backend for AppBackend {
             UiCmd::SetBypass(b) => self.ctl.send(Cmd::SetBypass(b)),
             UiCmd::SetGuard(g) => self.ctl.send(Cmd::SetGuard(g)),
             UiCmd::SetAutostart(a) => self.ctl.send(Cmd::SetAutostart(a)),
+            UiCmd::SetAutoUpdate(a) => self.ctl.send(Cmd::SetAutoUpdate(a)),
+            UiCmd::ApplyUpdate => {
+                if super::update::apply_now(&self.dir) {
+                    self.stop_player();
+                    self.pending.push_back(WindowCmd::Quit);
+                }
+            }
             UiCmd::RefreshMics => self.mics = list_mics(),
             UiCmd::Recalibrate => self.ctl.send(Cmd::Recalibrate),
             UiCmd::OpenReport => os::open_text_file(&self.dir.join("performance_report.txt")),
