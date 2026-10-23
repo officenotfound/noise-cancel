@@ -216,6 +216,9 @@ impl Backend for AppBackend {
                 }
             }
         }
+        if super::os::take_show_request(&self.dir) {
+            self.pending.push_back(WindowCmd::Show);
+        }
         self.pending.pop_front()
     }
 }

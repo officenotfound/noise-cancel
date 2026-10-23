@@ -24,6 +24,20 @@ pub fn run() {
     logging::init(&dir);
     // The app has no console on Windows; make sure a crash leaves a trace in the log file.
     std::panic::set_hook(Box::new(|info| logging::log(format!("PANIC: {info}"))));
+    // One instance at a time: a second start asks the running one to show its window and exits. Design previews
+    // and the self-test do not need the lock.
+    let _instance = if has("--demo") || has("--selftest") {
+        None
+    } else {
+        match os::single_instance(&dir) {
+            Some(lock) => Some(lock),
+            None => {
+                logging::log("QuietMic is already running; asking it to show its window");
+                os::request_show(&dir);
+                return;
+            }
+        }
+    };
     os::keep_awake_for_audio();
     logging::log(format!("QuietMic {} starting; args {:?}", env!("CARGO_PKG_VERSION"), &args[1..]));
 

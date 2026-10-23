@@ -139,3 +139,45 @@ pub fn keep_awake_for_audio() {
 
 #[cfg(not(target_os = "macos"))]
 pub fn keep_awake_for_audio() {}
+
+// ---------------------------------------------------------------- single instance
+
+/// Take the per-user instance lock (an exclusive lock on a file in the data folder; the system drops it when the
+/// process ends, even after a crash). `None` means another QuietMic already holds it.
+pub fn single_instance(dir: &Path) -> Option<std::fs::File> {
+    let f = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(dir.join("instance.lock")).ok()?;
+    match f.try_lock() {
+        Ok(()) => Some(f),
+        Err(std::fs::TryLockError::WouldBlock) => None,
+        Err(_) => Some(f), // cannot lock here (odd file system): do not block the start
+    }
+}
+
+/// A second start leaves this marker; the running instance sees it and shows its window.
+pub fn request_show(dir: &Path) {
+    let _ = std::fs::write(dir.join("show.request"), b"1");
+}
+
+/// True once if another start asked for the window.
+pub fn take_show_request(dir: &Path) -> bool {
+    std::fs::remove_file(dir.join("show.request")).is_ok()
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use super::*;
+
+    #[test]
+    fn second_instance_is_refused_until_the_first_ends() {
+        let dir = std::env::temp_dir().join(format!("qm-instance-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = single_instance(&dir).expect("first instance gets the lock");
+        assert!(single_instance(&dir).is_none(), "second instance must be refused");
+        request_show(&dir);
+        assert!(take_show_request(&dir));
+        assert!(!take_show_request(&dir));
+        drop(first);
+        assert!(single_instance(&dir).is_some(), "lock is free again after the first ends");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -29,21 +29,30 @@ enum Input {
     Icon(TrayIconEvent),
 }
 
-/// 32x32 filled circle with a darker ring.
+/// The app icon (64x64, same artwork as the desktop icon) with a small status dot in the corner.
 fn icon(rgb: (u8, u8, u8)) -> Icon {
-    let n = 32usize;
-    let mut px = vec![0u8; n * n * 4];
+    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../../../../assets/tray-64.png").as_slice()));
+    let mut reader = decoder.read_info().expect("tray icon png");
+    let mut buf = vec![0u8; reader.output_buffer_size().expect("tray icon size")];
+    let info = reader.next_frame(&mut buf).expect("tray icon frame");
+    let n = info.width as usize;
+    let mut px = match info.color_type {
+        png::ColorType::Rgba => buf[..n * n * 4].to_vec(),
+        png::ColorType::Rgb => buf[..n * n * 3].chunks(3).flat_map(|c| [c[0], c[1], c[2], 255]).collect(),
+        other => panic!("unexpected tray icon colour type {other:?}"),
+    };
+    // status dot, bottom right: a dark ring around the status colour
+    let (cx, cy, r) = (n as f32 * 0.74, n as f32 * 0.74, n as f32 * 0.22);
     for y in 0..n {
         for x in 0..n {
-            let (dx, dy) = (x as f32 - 15.5, y as f32 - 15.5);
-            let d = (dx * dx + dy * dy).sqrt();
+            let d = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
             let i = (y * n + x) * 4;
-            if d <= 14.0 {
-                let k = if d > 11.0 { 0.6 } else { 1.0 };
-                px[i] = (rgb.0 as f32 * k) as u8;
-                px[i + 1] = (rgb.1 as f32 * k) as u8;
-                px[i + 2] = (rgb.2 as f32 * k) as u8;
-                px[i + 3] = 255;
+            if d <= r {
+                let (c, a) = if d > r - 3.0 { ((20, 20, 20), 255) } else { (rgb, 255) };
+                px[i] = c.0;
+                px[i + 1] = c.1;
+                px[i + 2] = c.2;
+                px[i + 3] = a;
             }
         }
     }
