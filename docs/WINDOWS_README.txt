@@ -8,7 +8,7 @@ What it does
 Set-up (once)
   1. Install the free VB-Audio Virtual Cable: https://vb-audio.com/Cable/  (run the setup as administrator, reboot).
   2. Double-click QuietMic.exe. A coloured circle appears near the clock (click the ^ arrow if hidden).
-       green = working, grey = bypass, orange = starting/measuring, red = problem (hover for the reason)
+       the dot on the icon: green = working, grey = bypass, orange = starting/measuring, red = problem (hover for the reason)
   3. In Zoom / Teams / your softphone, choose "CABLE Output (VB-Audio Virtual Cable)" as the MICROPHONE.
   4. Use a headset. Keep the softphone's own echo cancellation ON and its noise suppression LOW or OFF.
 

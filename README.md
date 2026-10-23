@@ -130,7 +130,7 @@ QuietMic stands on other people's work. Please check each project's licence befo
 - [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) (MIT / Apache-2.0) and [tract](https://github.com/sonos/tract) (MIT / Apache-2.0)
 - [RNNoise](https://gitlab.xiph.org/xiph/rnnoise) / [nnnoiseless](https://github.com/jneem/nnnoiseless) (BSD-3-Clause)
 - [FastEnhancer](https://github.com/aask1357/fastenhancer) and [DPDFNet](https://github.com/ceva-ip/DPDFNet): see their repositories for code and weight licences
-- [Pixel Operator](https://www.pentacom.jp/pentacom/bitfontmaker2/gallery/?id=PixelOperator) font (CC0)
+- Pixel Operator font by Jayvee Enaguas (CC0), see `assets/fonts/README.md`
 - [VB-Audio Virtual Cable](https://vb-audio.com/Cable/) is donationware by VB-Audio; QuietMic never bundles it, it only downloads it on request
 - [BlackHole](https://existential.audio/blackhole/) on macOS
 - [WeSpeaker](https://github.com/wenet-e2e/wespeaker) models (CC-BY-4.0) and Silero VAD (MIT) are used only by the `qm-voice` research crate
