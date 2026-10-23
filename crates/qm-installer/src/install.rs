@@ -15,6 +15,8 @@ pub struct Progress {
     pub current: String,
     pub done: bool,
     pub error: Option<String>,
+    /// Something optional went wrong (for example the VB-Cable driver); the install itself is fine.
+    pub warning: Option<String>,
 }
 
 #[derive(Clone)]
@@ -23,6 +25,7 @@ pub struct Options {
     pub desktop_icon: bool,
     pub autostart: bool,
     pub launch: bool,
+    pub vbcable: bool,
 }
 
 pub fn default_dir() -> PathBuf {
@@ -69,6 +72,13 @@ pub fn run(opts: Options, progress: Arc<Mutex<Progress>>) {
         }
         progress.lock().unwrap().current = "registering shortcuts...".into();
         integrate(&opts)?;
+        progress.lock().unwrap().fraction = 0.93;
+        if opts.vbcable {
+            progress.lock().unwrap().current = "installing the VB-Cable virtual microphone (approve the Windows prompt)...".into();
+            if let Err(e) = install_vbcable() {
+                progress.lock().unwrap().warning = Some(format!("VB-Cable was not installed ({e}). Install it from vb-audio.com/Cable"));
+            }
+        }
         let mut p = progress.lock().unwrap();
         p.fraction = 1.0;
         p.current = "all done".into();
@@ -157,4 +167,57 @@ pub fn open_url(url: &str) {
     let _ = std::process::Command::new("open").arg(url).spawn();
     #[cfg(all(not(windows), not(target_os = "macos")))]
     let _ = url;
+}
+
+const VBCABLE_URL: &str = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip";
+
+/// Is the VB-Cable driver already on this PC?
+pub fn cable_installed() -> bool {
+    #[cfg(windows)]
+    {
+        let sys = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        std::fs::read_dir(sys.join(r"System32\drivers")).map(|d| d.filter_map(|e| e.ok()).any(|e| e.file_name().to_string_lossy().to_lowercase().starts_with("vbaudio_cable"))).unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+/// Download VB-Audio's own driver pack from their site and run their setup (it asks Windows for administrator rights
+/// and for permission to install the driver). VB-CABLE is donationware that may not be bundled, so it is never shipped here.
+#[cfg(windows)]
+fn install_vbcable() -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    let hide = 0x0800_0000u32; // CREATE_NO_WINDOW
+    let tmp = std::env::temp_dir().join("quietmic-vbcable");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp)?;
+    let zip = tmp.join("pack.zip");
+    let ok = Command::new("curl.exe").args(["-fsSL", "-m", "120", "-o"]).arg(&zip).arg(VBCABLE_URL).creation_flags(hide).status()?.success();
+    if !ok {
+        return Err(anyhow!("download failed"));
+    }
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip)?)?;
+    archive.extract(&tmp)?;
+    let arm = std::env::var("PROCESSOR_ARCHITECTURE").map(|a| a.eq_ignore_ascii_case("ARM64")).unwrap_or(false);
+    let want = if arm { "arm64" } else { "x64" };
+    let setup = std::fs::read_dir(&tmp)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            let n = p.file_name().unwrap().to_string_lossy().to_lowercase();
+            n.contains("setup") && n.contains(want) && n.ends_with(".exe")
+        })
+        .ok_or_else(|| anyhow!("setup program not found in the download"))?;
+    let script = format!("Start-Process -FilePath '{}' -ArgumentList '-i','-h' -Verb RunAs -Wait", setup.display());
+    let status = Command::new("powershell").args(["-NoProfile", "-Command", &script]).creation_flags(hide).status()?;
+    if !status.success() {
+        return Err(anyhow!("setup was cancelled"));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn install_vbcable() -> Result<()> {
+    Err(anyhow!("Windows only"))
 }

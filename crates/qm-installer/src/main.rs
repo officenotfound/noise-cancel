@@ -40,6 +40,7 @@ struct Setup {
     desktop_icon: bool,
     autostart: bool,
     open_cable: bool,
+    vbcable: bool,
     launch: bool,
     progress: Arc<Mutex<install::Progress>>,
     music: music::Player,
@@ -105,7 +106,8 @@ impl Setup {
             dir: install::default_dir().display().to_string(),
             desktop_icon: true,
             autostart: false,
-            open_cable: true,
+            open_cable: false,
+            vbcable: !install::cable_installed(),
             launch: true,
             progress: Arc::new(Mutex::new(install::Progress::default())),
             music: if shot.is_some() { music::Player::silent() } else { music::Player::start() },
@@ -128,7 +130,7 @@ impl Setup {
     fn start_install(&mut self) {
         self.screen = Screen::Installing;
         *self.progress.lock().unwrap() = install::Progress::default();
-        let opts = install::Options { dir: PathBuf::from(&self.dir), desktop_icon: self.desktop_icon, autostart: self.autostart, launch: self.launch };
+        let opts = install::Options { dir: PathBuf::from(&self.dir), desktop_icon: self.desktop_icon, autostart: self.autostart, launch: self.launch, vbcable: self.vbcable };
         let progress = self.progress.clone();
         std::thread::spawn(move || install::run(opts, progress));
     }
@@ -268,8 +270,11 @@ impl eframe::App for Setup {
                         ui.checkbox(&mut self.autostart, "START WITH WINDOWS");
                     });
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.open_cable, "OPEN VB-CABLE PAGE");
                         ui.checkbox(&mut self.launch, "RUN WHEN DONE");
+                        ui.checkbox(&mut self.open_cable, "OPEN VB-CABLE PAGE");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.vbcable, if install::cable_installed() { "VB-CABLE (ALREADY INSTALLED)" } else { "INSTALL VB-CABLE (FREE MIC DRIVER, ASKS FOR ADMIN)" });
                     });
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
@@ -293,6 +298,12 @@ impl eframe::App for Setup {
                 Screen::Done => {
                     ui.label(RichText::new("INSTALL COMPLETE.  LAMER-FREE ZONE.").color(AMBER).size(20.0));
                     ui.label("In QuietMic pick your real microphone, then choose CABLE Output as the microphone in Zoom / Teams / your softphone.");
+                    if self.vbcable {
+                        ui.label(RichText::new("If CABLE Output is not listed yet, restart Windows once.").color(DIM));
+                    }
+                    if let Some(w) = self.progress.lock().unwrap().warning.clone() {
+                        ui.label(RichText::new(w).color(Color32::from_rgb(0xff, 0x90, 0x50)));
+                    }
                     ui.add_space(8.0);
                     if ui.add_sized([210.0, 34.0], egui::Button::new(RichText::new("[ FINISH ]").size(24.0).color(AMBER))).clicked() {
                         if self.open_cable {
@@ -349,7 +360,7 @@ fn main() -> Result<(), eframe::Error> {
     if args.iter().any(|a| a == "--silent") {
         let dir = flag("--dir").map(PathBuf::from).unwrap_or_else(install::default_dir);
         let progress = Arc::new(Mutex::new(install::Progress::default()));
-        install::run(install::Options { dir, desktop_icon: false, autostart: false, launch: false }, progress.clone());
+        install::run(install::Options { dir, desktop_icon: false, autostart: false, launch: false, vbcable: args.iter().any(|a| a == "--vbcable") }, progress.clone());
         let p = progress.lock().unwrap();
         if let Some(e) = &p.error {
             eprintln!("install failed: {e}");
