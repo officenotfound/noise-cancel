@@ -17,8 +17,8 @@ path = "src/uninstaller.rs"
 anyhow = "1"
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
 cpal = "0.18"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 png = "0.18"
 
 [build-dependencies]
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }

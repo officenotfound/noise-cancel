@@ -206,8 +206,19 @@ fn install_vbcable() -> Result<()> {
     if !ok {
         return Err(anyhow!("download failed"));
     }
+    // Unpack by hand instead of `ZipArchive::extract`: only plain files directly inside the folder are accepted, so a
+    // crafted archive cannot plant links or write outside it.
     let mut archive = zip::ZipArchive::new(std::fs::File::open(&zip)?)?;
-    archive.extract(&tmp)?;
+    for i in 0..archive.len() {
+        let mut f = archive.by_index(i)?;
+        let is_link = f.unix_mode().map_or(false, |m| m & 0o170000 == 0o120000);
+        let Some(name) = f.enclosed_name().and_then(|n| n.file_name().map(|n| n.to_owned())) else { continue };
+        if f.is_dir() || is_link || f.size() > 20 * 1024 * 1024 {
+            continue;
+        }
+        let mut out = std::fs::File::create(tmp.join(name))?;
+        std::io::copy(&mut f, &mut out)?;
+    }
     let arm = std::env::var("PROCESSOR_ARCHITECTURE").map(|a| a.eq_ignore_ascii_case("ARM64")).unwrap_or(false);
     let want = if arm { "arm64" } else { "x64" };
     let setup = std::fs::read_dir(&tmp)?
