@@ -4,7 +4,7 @@ members = ["crates/qm-dsp", "crates/qm-bench", "crates/qm-engine", "crates/qm-cl
 
 [workspace.package]
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [profile.release]
 lto = "fat"
